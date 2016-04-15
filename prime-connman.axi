@@ -8,7 +8,15 @@ PROGRAM_NAME='prime-connman'
 (***********************************************************)
 (***********************************************************)
 (***********************************************************)
-(*  FILE_LAST_MODIFIED_ON: 03/09/2016  AT: 23:55:08        *)
+(*  FILE_LAST_MODIFIED_ON: 04/15/2016  AT: 23:04:22        *)
+(***********************************************************)
+(*  FILE REVISION: Rev 2                                   *)
+(*  REVISION DATE: 04/15/2016  AT: 23:04:19                *)
+(*                                                         *)
+(*  COMMENTS:                                              *)
+(*  Added handling of unexpected open socket for           *)
+(*  data_event onerror                                     *)
+(*                                                         *)
 (***********************************************************)
 (* System Type : NetLinx                                   *)
 (***********************************************************)
@@ -476,6 +484,11 @@ data_event[connman_device] {
     }
     onerror: {
 	if (AMX_ERROR <= get_log_level()) debug("'could not connect to ', connman_host.address, ' on port ', itoa(connman_host.port), ' ', IP_PROTOCOL_STRINGS[connman_host.protocol], ' (Error ', itoa(data.number), ' ', ip_error_desc(type_cast(data.number)), ')'");
+	
+	if (data.number == 14) {
+	    if (AMX_ERROR <= get_log_level()) debug("'closing unexpected open socket'");
+	    ip_client_close(data.device.port); // Unexpected open socket
+	}
 	
 	if (connman_connect_status == CONNMAN_STATUS_CONNECTING) {
 	    if (!timeline_active(CONNMAN_CONNECT_TL)) {

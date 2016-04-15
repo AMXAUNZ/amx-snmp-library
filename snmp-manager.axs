@@ -4,7 +4,16 @@ MODULE_NAME='snmp-manager'(dev vdvModule, dev connman_device, dev connman_server
 (***********************************************************)
 (***********************************************************)
 (***********************************************************)
-(*  FILE_LAST_MODIFIED_ON: 03/10/2016  AT: 00:54:44        *)
+(*  FILE_LAST_MODIFIED_ON: 04/15/2016  AT: 11:03:09        *)
+(***********************************************************)
+(*  FILE REVISION: Rev 2                                   *)
+(*  REVISION DATE: 04/15/2016  AT: 11:03:06                *)
+(*                                                         *)
+(*  COMMENTS:                                              *)
+(*  Corrected connman_server_reinitialize() call in        *)
+(*  reinitialize(), which prevented the SNMP trap listener *)
+(*  from starting.                                         *)
+(*                                                         *)
 (***********************************************************)
 (* System Type : NetLinx                                   *)
 (***********************************************************)
@@ -544,7 +553,7 @@ define_function reinitialize() {
     #END_IF
     
     #IF_DEFINED __PRIME_CONNMAN_SERVER
-    connman_reinitialize();
+    connman_server_reinitialize();
     #END_IF
     
     on[vdvModule, DATA_INITIALIZED];

@@ -8,7 +8,7 @@ PROGRAM_NAME='prime-debug'
 (***********************************************************)
 (***********************************************************)
 (***********************************************************)
-(*  FILE_LAST_MODIFIED_ON: 03/09/2016  AT: 23:55:25        *)
+(*  FILE_LAST_MODIFIED_ON: 04/15/2016  AT: 23:01:28        *)
 (***********************************************************)
 (* System Type : NetLinx                                   *)
 (***********************************************************)
@@ -245,8 +245,8 @@ define_function integer debug_setProperty(char key[], char value[]) {
 
 define_function integer debug_set_level(integer lvl) {
     if (lvl && (lvl <= AMX_DEBUG)) {
-	if (AMX_INFO <= get_log_level()) debug("'Setting debug level to ', itoa(lvl), ' ', DEBUG_LEVEL_STRINGS[lvl]");
 	set_log_level(lvl);
+	if (AMX_INFO <= get_log_level()) debug("'Set debug level to ', itoa(lvl), ' ', DEBUG_LEVEL_STRINGS[lvl]");
     } else {
 	if (AMX_WARNING <= get_log_level()) debug("'Invalid debug level! Valid levels are 1-4)'");
     }

@@ -8,7 +8,14 @@ PROGRAM_NAME='prime-connman-server'
 (***********************************************************)
 (***********************************************************)
 (***********************************************************)
-(*  FILE_LAST_MODIFIED_ON: 03/09/2016  AT: 23:55:15        *)
+(*  FILE_LAST_MODIFIED_ON: 04/15/2016  AT: 11:01:56        *)
+(***********************************************************)
+(*  FILE REVISION: Rev 2                                   *)
+(*  REVISION DATE: 04/15/2016  AT: 11:01:40                *)
+(*                                                         *)
+(*  COMMENTS:                                              *)
+(*  Corrected debug message function naming                *)
+(*                                                         *)
 (***********************************************************)
 (* System Type : NetLinx                                   *)
 (***********************************************************)
@@ -115,7 +122,7 @@ INCLUDE 'prime-debug';
 (***********************************************************)
 
 define_function integer connman_server_setProperty(char key[], char value[]) {
-    if (AMX_DEBUG <= get_log_level()) debug("'connman_setProperty', '(', key, ', ', value, ')'");
+    if (AMX_DEBUG <= get_log_level()) debug("'connman_server_setProperty', '(', key, ', ', value, ')'");
     
     switch (key) {
 	case 'PORT': {
@@ -135,7 +142,7 @@ define_function integer connman_server_setProperty(char key[], char value[]) {
 	}
     }
     
-    if (AMX_DEBUG <= get_log_level()) debug("'connman_setProperty', '() ', 'returning true'");
+    if (AMX_DEBUG <= get_log_level()) debug("'connman_server_setProperty', '() ', 'returning true'");
     return true;
 }
 
@@ -150,19 +157,18 @@ define_function connman_server_reinitialize() {
     
 }
 
-define_function integer connman_server_open() {
+define_function connman_server_open() {
     if (AMX_DEBUG <= get_log_level()) debug("'connman_server_open', '()'");
     
     if (!connman_server_config.port) {
-	if (AMX_INFO <= get_log_level()) debug("'Listening port not configured. Returning false'");
-	return false;
+	if (AMX_INFO <= get_log_level()) debug("'connman_server_open() ', 'listening port not configured'");
     }
     
     switch (connman_server_open_status) {
 	case CONNMAN_SERVER_STATUS_CLOSED: {
 	    connman_server_open_status = CONNMAN_SERVER_STATUS_OPENING;
 	    
-	    if (AMX_DEBUG <= get_log_level()) debug("'Opening listening socket on port ', itoa(connman_server_config.port), ' ', IP_PROTOCOL_STRINGS[connman_server_config.protocol]");
+	    if (AMX_INFO <= get_log_level()) debug("'connman_server_open() ', 'opening listening socket on port ', itoa(connman_server_config.port), ' ', IP_PROTOCOL_STRINGS[connman_server_config.protocol]");
 	    ip_server_open(connman_server_device.port, connman_server_config.port, connman_server_config.protocol);
 	}
 	case CONNMAN_SERVER_STATUS_OPENING: {
@@ -171,9 +177,10 @@ define_function integer connman_server_open() {
 	case CONNMAN_SERVER_STATUS_OPEN: {
 	    // Socket is already open
 	}
+	default: {
+	    if (AMX_ERROR <= get_log_level()) debug("'connman_server_open', '() ', 'unexpected socket status!'");
+	}
     }
-    
-    if (AMX_DEBUG <= get_log_level()) debug("'Returning true'");
 }
 
 define_function connman_server_close() {
@@ -237,11 +244,11 @@ data_event[connman_server_device] {
 timeline_event[CONNMAN_SERVER_OPEN_TL] {
     switch(timeline.sequence) {
 	case 1: {
-	    if (AMX_DEBUG <= get_log_level()) debug("'Opening listening socket in ', ftoa(connman_server_open_times[2] / 1000), ' seconds...'");
+	    if (AMX_DEBUG <= get_log_level()) debug("'CONNMAN_SERVER_OPEN_TL', '(', itoa(timeline.repetition), ', ', itoa(timeline.sequence), ') ', 'opening listening socket in ', ftoa(connman_server_open_times[2] / 1000), ' seconds...'");
 	}
 	case 2: {
 	    if (connman_server_open_status != CONNMAN_SERVER_OPEN_STATUS) {
-		if (AMX_DEBUG <= get_log_level()) debug("'Opening listening socket on port ', itoa(connman_server_config.port), ' ', IP_PROTOCOL_STRINGS[connman_server_config.protocol]");
+		if (AMX_DEBUG <= get_log_level()) debug("'CONNMAN_SERVER_OPEN_TL', '(', itoa(timeline.repetition), ', ', itoa(timeline.sequence), ') ', 'opening listening socket on port ', itoa(connman_server_config.port), ' ', IP_PROTOCOL_STRINGS[connman_server_config.protocol]");
 		ip_server_open(connman_server_device.port, connman_server_config.port, connman_server_config.protocol);
 	    }
 	}
