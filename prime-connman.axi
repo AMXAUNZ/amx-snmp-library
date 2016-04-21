@@ -8,7 +8,16 @@ PROGRAM_NAME='prime-connman'
 (***********************************************************)
 (***********************************************************)
 (***********************************************************)
-(*  FILE_LAST_MODIFIED_ON: 04/21/2016  AT: 13:37:55        *)
+(*  FILE_LAST_MODIFIED_ON: 04/21/2016  AT: 14:37:25        *)
+(***********************************************************)
+(*  FILE REVISION: Rev 3                                   *)
+(*  REVISION DATE: 04/21/2016  AT: 14:02:00                *)
+(*                                                         *)
+(*  COMMENTS:                                              *)
+(*  Added MAX_CONNECTION_ATTEMPTS config parameter         *)
+(*  Improved connect/disconnect and buffer management      *)
+(*  handling for improved long-term stability.             *)
+(*                                                         *)
 (***********************************************************)
 (*  FILE REVISION: Rev 2                                   *)
 (*  REVISION DATE: 04/15/2016  AT: 23:04:19                *)
@@ -383,6 +392,11 @@ define_function connman_connect() {
 define_function connman_disconnect() {
 	if (AMX_DEBUG <= get_log_level()) debug(AMX_DEBUG, "'connman_disconnect', '()'");
 	
+	if (timeline_active(CONNMAN_BUFFPROC_TL)) {
+		if (AMX_INFO <= get_log_level()) debug(AMX_INFO, "'connman_disconnect', '() ', 'stopping buffer processing'");
+		timeline_kill(CONNMAN_BUFFPROC_TL);
+	}
+	
 	if (timeline_active(CONNMAN_CONNECT_TL)) {
 		if (AMX_INFO <= get_log_level()) debug(AMX_INFO, "'connman_disconnect', '() ', 'cancelling connection attempt'");
 		timeline_kill(CONNMAN_CONNECT_TL);
@@ -507,21 +521,21 @@ data_event[connman_device] {
 	online: {
 		if (AMX_INFO <= get_log_level()) debug(AMX_INFO, "'connected to ', connman_host.address, ' on port ', itoa(connman_host.port), ' ', IP_PROTOCOL_STRINGS[connman_host.protocol]");
 		connman_connect_status = CONNMAN_STATUS_CONNECTED;
-	connman_connect_count = 0;
+		connman_connect_count = 0;
 		
 		if (timeline_active(CONNMAN_CONNECT_TL)) timeline_kill(CONNMAN_CONNECT_TL);
 		
 		if (connman_connect_request == CONNMAN_STATUS_DISCONNECT) {
 			connman_disconnect();
 		} else 
-	if (length_string(connman_buffer_out[connman_buffer_out_pos_out].str)) {
+		if (length_string(connman_buffer_out[connman_buffer_out_pos_out].str)) {
 			connman_buffer_process();
 		}
 	}
 	offline: {
 		if (AMX_INFO <= get_log_level()) debug(AMX_INFO, "'disconnected from ', connman_host.address, ' on port ', itoa(connman_host.port), ' ', IP_PROTOCOL_STRINGS[connman_host.protocol]");
 		connman_connect_status = CONNMAN_STATUS_DISCONNECTED;
-	connman_connect_count = 0;
+		connman_connect_count = 0;
 		
 		if (timeline_active(CONNMAN_BUFFPROC_TL)) timeline_kill(CONNMAN_BUFFPROC_TL);
 		if (
@@ -555,7 +569,7 @@ data_event[connman_device] {
 timeline_event[CONNMAN_CONNECT_TL] {
 	switch(timeline.sequence) {
 		case 1: {
-		if (connman_connect_count >= connman_max_connect_count) {
+			if (connman_connect_count >= connman_max_connect_count) {
 				if (AMX_WARNING <= get_log_level()) debug(AMX_WARNING, "'CONNMAN_BUFFPROC_TL', '(', itoa(timeline.repetition), ', ', itoa(timeline.sequence), ') ', 'connection attempt failed. could not connect after ', itoa(connman_connect_count), ' attempts. Advancing buffer.'");
 				
 				#IF_DEFINED USE_CONNMAN_CONNECT_FAIL_CALLBACK
@@ -563,14 +577,14 @@ timeline_event[CONNMAN_CONNECT_TL] {
 				#END_IF
 				
 				connman_buffer_advance();
-		} else {
-		if (AMX_DEBUG <= get_log_level()) debug(AMX_DEBUG, "'CONNMAN_CONNECT_TL', '(', itoa(timeline.repetition), ', ', itoa(timeline.sequence), ') ', 'connecting in ', itoa(CONNMAN_CONNECT_TIMES[2] / 1000), ' seconds'");
-		}
+			} else {
+				if (AMX_DEBUG <= get_log_level()) debug(AMX_DEBUG, "'CONNMAN_CONNECT_TL', '(', itoa(timeline.repetition), ', ', itoa(timeline.sequence), ') ', 'connecting in ', itoa(CONNMAN_CONNECT_TIMES[2] / 1000), ' seconds'");
+			}
 		}
 		case 2: {
 			if (connman_connect_status == CONNMAN_STATUS_CONNECTED) {
 				if (AMX_WARNING <= get_log_level()) debug(AMX_WARNING, "'CONNMAN_BUFFPROC_TL', '(', itoa(timeline.repetition), ', ', itoa(timeline.sequence), ') ', 'already connected. stopping connection attempt.'");
-		} else {
+			} else {
 				if (length_string(connman_buffer_out[connman_buffer_out_pos_out].str)) {
 					if (connman_host.address  != connman_buffer_out[connman_buffer_out_pos_out].host.address)  connman_setProperty('IP_ADDRESS', connman_buffer_out[connman_buffer_out_pos_out].host.address);
 					if (connman_host.port     != connman_buffer_out[connman_buffer_out_pos_out].host.port)     connman_setProperty('PORT', itoa(connman_buffer_out[connman_buffer_out_pos_out].host.port));
@@ -579,7 +593,7 @@ timeline_event[CONNMAN_CONNECT_TL] {
 				
 				if (AMX_DEBUG <= get_log_level()) debug(AMX_DEBUG, "'CONNMAN_CONNECT_TL', '(', itoa(timeline.repetition), ', ', itoa(timeline.sequence), ') ', 'connecting to ', connman_host.address, ' on port ', itoa(connman_host.port), ' ', IP_PROTOCOL_STRINGS[connman_host.protocol]");
 				ip_client_open(connman_device.port, connman_host.address, connman_host.port, connman_host.protocol);
-		connman_connect_count++;
+				connman_connect_count++;
 			}
 		}
 	}
@@ -628,7 +642,7 @@ timeline_event[CONNMAN_BUFFPROC_TL] {
 		}
 		case 2: {
 			if (timeline_active(timeline.id)) { // Incase the timeline_event runs again whilst it is being terminated (http://www.amx.com/techsupport/technote.asp?id=1040)
-				if (AMX_DEBUG <= get_log_level()) debug(AMX_DEBUG, "'CONNMAN_BUFFPROC_TL', '(', itoa(timeline.repetition), ', ', itoa(timeline.sequence), ') ', 'waiting...'");
+				if (AMX_DEBUG <= get_log_level()) debug(AMX_DEBUG, "'CONNMAN_BUFFPROC_TL', '(', itoa(timeline.repetition), ', ', itoa(timeline.sequence), ') ', 'waiting for connection to complete'");
 			}
 		}
 	}
