@@ -4,7 +4,38 @@ MODULE_NAME='snmp-manager'(dev vdvModule, dev connman_device, dev connman_server
 (***********************************************************)
 (***********************************************************)
 (***********************************************************)
-(*  FILE_LAST_MODIFIED_ON: 04/21/2016  AT: 13:19:21        *)
+(*  FILE_LAST_MODIFIED_ON: 05/24/2016  AT: 21:27:01        *)
+(***********************************************************)
+(*  FILE REVISION: Rev 7                                   *)
+(*  REVISION DATE: 05/23/2016  AT: 21:39:14                *)
+(*                                                         *)
+(*  COMMENTS:                                              *)
+(*  added integer validation to atol_unsigned()            *)
+(*                                                         *)
+(***********************************************************)
+(*  FILE REVISION: Rev 6                                   *)
+(*  REVISION DATE: 05/18/2016  AT: 21:03:06                *)
+(*                                                         *)
+(*  COMMENTS:                                              *)
+(*  Encapsulated varbind contents in quotes                *)
+(*                                                         *)
+(***********************************************************)
+(*  FILE REVISION: Rev 5                                   *)
+(*  REVISION DATE: 05/18/2016  AT: 11:26:10                *)
+(*                                                         *)
+(*  COMMENTS:                                              *)
+(*  Moved hybrid notation removal for ipv4 addresses       *)
+(*  for response and trap parsing                          *)
+(*                                                         *)
+(***********************************************************)
+(*  FILE REVISION: Rev 4                                   *)
+(*  REVISION DATE: 05/12/2016  AT: 11:32:31                *)
+(*                                                         *)
+(*  COMMENTS:                                              *)
+(*  Corrected explode() quoted parameter parsing           *)
+(*  Corrected SNMP agent host configuration validation     *)
+(*  TODO: Cater for leading . characters in OID            *)
+(*                                                         *)
 (***********************************************************)
 (*  FILE REVISION: Rev 3                                   *)
 (*  REVISION DATE: 04/21/2016  AT: 12:29:15                *)
@@ -351,8 +382,16 @@ define_function long atol_unsigned(char str[]) {
 	// if (AMX_DEBUG <= get_log_level()) debug(AMX_DEBUG, "'atol_unsigned', '(', 'str', ')'");
 
 	for (i = 1; i <= length_string(str); i++) {
+		stack_var volatile integer digit;
+		
+		digit = atoi("str[i]");
+		if ((digit < '0') || (digit > '9')) {
+			// if (AMX_DEBUG <= get_log_level()) debug(AMX_DEBUG, "'atol_unsigned', '() ', 'stopping at non-numerical character "', str[i], '"'");
+			break;
+		}
+		
 		l = l * 10;
-		l = l + atoi("str[i]");
+		l = l + digit;
 	}
 	
 	// if (AMX_DEBUG <= get_log_level()) debug(AMX_DEBUG, "'atol_unsigned', '() ', 'returning ', ltoa(l)");
@@ -455,35 +494,33 @@ define_function char[MAX_LEN_STR] implode(char parts[][], char delim[]) {
 #IF_NOT_DEFINED __PRIME_EXPLODE
 	#DEFINE __PRIME_EXPLODE
 	
-define_function integer explode(char str[], char delim[], char quote, char parts[][]) {
+define_function integer explode(char str[], char delim[], char quote[], char parts[][]) {
 	stack_var volatile integer i;
-	stack_var volatile integer start, end;
+	stack_var volatile integer start, end, quoted;
 	
-	// if (AMX_DEBUG <= get_log_level()) debug(AMX_DEBUG, "'explode', '(', 'str[', itoa(length_string(str)), ']', ', "', delim, '", "', quote, '", ', 'parts[', itoa(max_length_array(parts)), '][]', ')'");
+	// if (AMX_DEBUG <= get_log_level()) debug(AMX_DEBUG, "'explode', '("', str, '", "', delim, '", "', quote, '", ', 'parts[', itoa(max_length_array(parts)), '][]', ')'");
 	
 	start = 1;
 	while (start <= length_string(str)) {
 		i++;
 		
-		/*
-		if (str[start] == delim) {
-			start++;                                    // Avoid empty parts and delimiter padding (i.e. spaces)
-			continue;
-		}
-		*/
-		if ((quote) && (str[start] == quote)) {         // Optionally consider quoted strings as a single parts
-			start++;
-			end = find_string(str, quote, start);
+		if (length_string(quote) && (mid_string(str, start, length_string(quote)) == quote)) { // Consider quoted strings as a single parts
+			quoted = true;
+			start = start + length_string(quote); // Move starting position to omit quote
+			end = find_string(str, quote, start); // Find next quote
 		} else {
-			end = find_string(str, delim, start);       // Find next delimiter
+			quoted = false;
+			end = find_string(str, delim, start); // Find next delimiter
 		}
-		if ((!end) || (i == max_length_array(parts))) { // Return remainder of string if no further delimiters found or the maximum number of parts have already been found
+		if ((!end) || (i == max_length_array(parts))) { // Return remainder of string if no further delimiters or quotes are found, or the maximum number of parts have already been found
 			end = length_string(str) + 1;
 		}
 		
 		parts[i] = mid_string(str, start, end - start);
+		// if (AMX_DEBUG <= get_log_level()) debug(AMX_DEBUG, "'explode', '() ', 'array[', itoa(i), '] ', parts[i]");
 		
-		start = end + 1;
+		start = end + length_string(delim); // Advance past the ending delimiter
+		if (quoted) start = start + length_string(quote); // Advance past the quote
 	}
 	
 	set_length_array(parts, i);
@@ -589,9 +626,9 @@ define_function integer snmp_request(_connman_host host, _snmp_request request) 
 	
 	if (AMX_DEBUG <= get_log_level()) debug(AMX_DEBUG, "'snmp_request', '(', '_connman_host ', host.address, ':', itoa(host.port), ', ', request.pdu, ', ', request.oid, '@', request.community, ', ', request.tag.type, ', ', request.tag.contents, ')'");
 	
-	if (!host.protocol) host.protocol = IP_UDP_2WAY;
-	if (!length_string(host.address)) host.address = snmp_agent.address;
-	if (host.port) host.port = snmp_agent.port;
+	if (!host.protocol)                    host.protocol = IP_UDP_2WAY;
+	if (!length_string(host.address))      host.address = snmp_agent.address;
+	if (!host.port)                        host.port = snmp_agent.port;
 	
 	if (!length_string(request.community)) request.community = snmp_agent.community;
 	
@@ -710,7 +747,7 @@ define_function char[MAX_LEN_OID_ENCODED] asn1_tag_oid_encode(char str[]) {
 	
 	if (AMX_DEBUG <= get_log_level()) debug(AMX_DEBUG, "'asn1_tag_oid_encode', '(', str, ')'");
 	
-	explode(str, '.', false, oid_sub_identifiers);
+	explode(str, '.', '', oid_sub_identifiers);
 	
 	ret = "(atoi(oid_sub_identifiers[1]) * 40) + atoi(oid_sub_identifiers[2])";
 	
@@ -736,7 +773,7 @@ define_function char[MAX_LEN_IPADDRESS_ENCODED] asn1_tag_ipaddress_encode(char s
 	
 	if (AMX_DEBUG <= get_log_level()) debug(AMX_DEBUG, "'asn1_tag_ipaddress_encode', '(', str, ')'");
 	
-	if (!explode(str, '.', false, octets)) {
+	if (!explode(str, '.', '', octets)) {
 		if (AMX_ERROR <= get_log_level()) debug(AMX_ERROR, "'asn1_tag_ipaddress_encode', '() ', 'could not parse address!', ret");
 	} else {
 		stack_var volatile integer i;
@@ -956,7 +993,7 @@ data_event[vdvModule] {
 			case 'PROPERTY': {
 				stack_var char parts[2][MAX_LEN_STR];
 				
-				if (!explode(data.text, ',', true, parts)) {
+				if (!explode(data.text, ',', '"', parts)) {
 					if (AMX_ERROR <= get_log_level()) debug(AMX_ERROR, "'data_event command property: ', 'Could not parse parameters!'");
 				} else {
 					setProperty(parts[1], parts[2]);
@@ -970,7 +1007,7 @@ data_event[vdvModule] {
 			case 'SNMPGETNEXT': { // SNMPGETNEXT-<oid>[,<community>[,<host>[,<port>[,<request id>]]]]
 				stack_var char parts[5][MAX_LEN_OCTET_STRING];
 				
-				explode(data.text, ',', true, parts);
+				explode(data.text, ',', '"', parts);
 				
 				if (length_array(parts) < 1) {
 					if (AMX_ERROR <= get_log_level()) debug(AMX_ERROR, "'data_event command ', lower_string(cmd), ': ', 'could not parse parameters!'");
@@ -1005,7 +1042,7 @@ data_event[vdvModule] {
 			case 'SNMPSET': { // SNMPSET-<oid>,<type>,<value>[,<community>[,<host>[,<port>[,<request id>]]]]
 				stack_var char parts[7][MAX_LEN_OCTET_STRING];
 				
-				explode(data.text, ',', true, parts);
+				explode(data.text, ',', '"', parts);
 				
 				if (length_array(parts) < 3) {
 					if (AMX_ERROR <= get_log_level()) debug(AMX_ERROR, "'data_event command ', lower_string(cmd), ': ', 'could not parse parameters!'");
@@ -1050,6 +1087,8 @@ data_event[connman_server_device] {
 		if (AMX_INFO <= get_log_level()) debug(AMX_INFO, "'response: ', 'community: ', snmp_message[SNMP_MESSAGE_FIELD_COMMUNITY].contents");
 		if (AMX_INFO <= get_log_level()) debug(AMX_INFO, "'response: ', 'pdu: ',       ASN1_TAG_STRINGS[array_search(snmp_message[SNMP_MESSAGE_FIELD_PDU].type, ASN1_TAGS)]");
 		
+		remove_string(data.sourceip, '::ffff:', 1); // Remove hybrid notation for ipv4 addresses
+		
 		switch (snmp_message[SNMP_MESSAGE_FIELD_PDU].type) {
 			case ASN1_TAG_RESPONSE_PDU: {
 				stack_var volatile integer i;
@@ -1062,8 +1101,6 @@ data_event[connman_server_device] {
 				if (AMX_INFO <= get_log_level()) debug(AMX_INFO, "'response: ', 'request id: ', snmp_pdu[SNMP_PDU_FIELD_REQUEST_ID].contents");
 				
 				asn1_tag_decode(snmp_pdu[SNMP_PDU_FIELD_RESPONSE_VARBIND_LIST].contents, snmp_varbind_list);
-				
-				remove_string(data.sourceip, '::ffff:', 1);
 				
 				// Error handling
 				if (snmp_pdu[SNMP_PDU_FIELD_ERROR].contents != itoa(SNMP_ERROR_NO_ERROR)) {
@@ -1093,7 +1130,7 @@ data_event[connman_server_device] {
 					send_string vdvModule, "
 						'OID', '-', 
 						snmp_varbind[SNMP_VARBIND_FIELD_OID].contents, ',', 
-						snmp_varbind[SNMP_VARBIND_FIELD_VALUE].contents, ',', 
+						'"', snmp_varbind[SNMP_VARBIND_FIELD_VALUE].contents, '"', ',', 
 						ASN1_TAG_STRINGS[array_search(snmp_varbind[SNMP_VARBIND_FIELD_VALUE].type, ASN1_TAGS)], ',', 
 						snmp_message[SNMP_MESSAGE_FIELD_COMMUNITY].contents, ',', 
 						data.sourceip, ',', 
@@ -1127,7 +1164,7 @@ data_event[connman_server_device] {
 					send_string vdvModule, "
 						'TRAP', '-', 
 						snmp_varbind[SNMP_VARBIND_FIELD_OID].contents, ',', 
-						snmp_varbind[SNMP_VARBIND_FIELD_VALUE].contents, ',', 
+						'"', snmp_varbind[SNMP_VARBIND_FIELD_VALUE].contents, '"', ',', 
 						ASN1_TAG_STRINGS[array_search(snmp_varbind[SNMP_VARBIND_FIELD_VALUE].type, ASN1_TAGS)], ',', 
 						snmp_message[SNMP_MESSAGE_FIELD_COMMUNITY].contents, ',', 
 						data.sourceip, ',', 
@@ -1140,7 +1177,7 @@ data_event[connman_server_device] {
 			}
 		}
 		
-	if (AMX_INFO <= get_log_level()) debug(AMX_INFO, "'response: ', 'message processed in ', itoa(get_timer - timer), ' 1/10th sec'");
+		if (AMX_INFO <= get_log_level()) debug(AMX_INFO, "'response: ', 'message processed in ', itoa(get_timer - timer), ' 1/10th sec'");
 	}
 }
 

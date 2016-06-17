@@ -8,7 +8,23 @@ PROGRAM_NAME='prime-connman'
 (***********************************************************)
 (***********************************************************)
 (***********************************************************)
-(*  FILE_LAST_MODIFIED_ON: 04/21/2016  AT: 14:37:25        *)
+(*  FILE_LAST_MODIFIED_ON: 05/12/2016  AT: 11:24:40        *)
+(***********************************************************)
+(*  FILE REVISION: Rev 5                                   *)
+(*  REVISION DATE: 05/12/2016  AT: 11:21:59                *)
+(*                                                         *)
+(*  COMMENTS:                                              *)
+(*  Corrected debug messages, indentation.                 *)
+(*  TODO: Optimise connection request calls - simplify     *)
+(*  waits and remove recurring calls to connman_connect(). *)
+(*                                                         *)
+(***********************************************************)
+(*  FILE REVISION: Rev 4                                   *)
+(*  REVISION DATE: 05/06/2016  AT: 10:26:11                *)
+(*                                                         *)
+(*  COMMENTS:                                              *)
+(*  Added connman_stat_online/offline/error count tracking *)
+(*                                                         *)
 (***********************************************************)
 (*  FILE REVISION: Rev 3                                   *)
 (*  REVISION DATE: 04/21/2016  AT: 14:02:00                *)
@@ -167,6 +183,10 @@ volatile long               connman_connect_times[]         = { 0, 5000 }
 volatile integer            connman_connect_status          = CONNMAN_STATUS_DISCONNECTED;
 volatile integer            connman_connect_request         = CONNMAN_STATUS_DISCONNECT;
 volatile integer            connman_connect_count           = 0;
+
+volatile long 				connman_stat_online             = 0;
+volatile long 				connman_stat_offline            = 0;
+volatile long 				connman_stat_error              = 0;
 
 (***********************************************************)
 (*                     INCLUDES GO BELOW                   *)
@@ -364,7 +384,7 @@ define_function connman_connect() {
 		
 		connman_connect_request = CONNMAN_STATUS_CONNECT;
 		if (!connman_validate_connection()) {
-			if (AMX_INFO <= get_log_level()) debug(AMX_INFO, "'connman_connect', '() ', 'connection parameters are incorrect. disconnecting.'");
+			if (AMX_INFO <= get_log_level()) debug(AMX_INFO, "'connman_connect', '() ', 'connection parameters are incorrect. requesting disconnection...'");
 			connman_disconnect();
 		}
 	} else 
@@ -372,18 +392,18 @@ define_function connman_connect() {
 		if (AMX_INFO <= get_log_level()) debug(AMX_INFO, "'connman_connect', '() ', 'already trying to connect'");
 		
 		if (!timeline_active(CONNMAN_CONNECT_TL)) {
-			if (AMX_WARNING <= get_log_level()) debug(AMX_WARNING, "'connman_connect', '() ', 'CONNMAN_CONNECT_TL is not running. starting CONNMAN_CONNECT_TL.'");
+			if (AMX_WARNING <= get_log_level()) debug(AMX_WARNING, "'connman_connect', '() ', 'CONNMAN_CONNECT_TL is not running. starting CONNMAN_CONNECT_TL.'"); // TODO: this may occur if disconneting whilst a connection request has been made, introducing an unnecessary delay.
 			
 			timeline_create(CONNMAN_CONNECT_TL, connman_connect_times, length_array(connman_connect_times), TIMELINE_ABSOLUTE, TIMELINE_ONCE);
 		}
 	} else { // Connect
-		if (AMX_INFO <= get_log_level()) debug(AMX_INFO, "'connman_connect', '() ', 'starting connection'");
+		if (AMX_INFO <= get_log_level()) debug(AMX_INFO, "'connman_connect', '() ', 'starting connection...'");
 		
 		connman_connect_request = CONNMAN_STATUS_CONNECT;
 		if (!timeline_active(CONNMAN_CONNECT_TL)) {
 			timeline_create(CONNMAN_CONNECT_TL, connman_connect_times, length_array(connman_connect_times), TIMELINE_ABSOLUTE, TIMELINE_ONCE);
-		if (connman_connect_status != CONNMAN_STATUS_ERROR) timeline_set(CONNMAN_CONNECT_TL, CONNMAN_CONNECT_TIMES[2]); // Delay this connection attempt if the last attempt caused an error
-	}
+			if (connman_connect_status != CONNMAN_STATUS_ERROR) timeline_set(CONNMAN_CONNECT_TL, CONNMAN_CONNECT_TIMES[2]); // Delay this connection attempt if the last attempt caused an error
+		}
 	}
 	
 	if (AMX_DEBUG <= get_log_level()) debug(AMX_DEBUG, "'connman_connect', '() ', 'returning'");
@@ -449,6 +469,7 @@ define_function connman_buffer_process() {
 	if (AMX_DEBUG <= get_log_level()) debug(AMX_DEBUG, "'connman_buffer_process', '()'");
 	
 	if (connman_connect_status != CONNMAN_STATUS_CONNECTED) {
+		if (AMX_DEBUG <= get_log_level()) debug(AMX_DEBUG, "'connman_buffer_process', '() ', 'requesting connection'");
 		connman_connect();
 	} else 
 	if (!length_string(connman_buffer_out[connman_buffer_out_pos_out].str)) {
@@ -519,8 +540,10 @@ DEFINE_EVENT
 
 data_event[connman_device] {
 	online: {
-		if (AMX_INFO <= get_log_level()) debug(AMX_INFO, "'connected to ', connman_host.address, ' on port ', itoa(connman_host.port), ' ', IP_PROTOCOL_STRINGS[connman_host.protocol]");
 		connman_connect_status = CONNMAN_STATUS_CONNECTED;
+		connman_stat_online++;
+		
+		if (AMX_INFO <= get_log_level()) debug(AMX_INFO, "'connected to ', connman_host.address, ' on port ', itoa(connman_host.port), ' ', IP_PROTOCOL_STRINGS[connman_host.protocol]");
 		connman_connect_count = 0;
 		
 		if (timeline_active(CONNMAN_CONNECT_TL)) timeline_kill(CONNMAN_CONNECT_TL);
@@ -533,8 +556,10 @@ data_event[connman_device] {
 		}
 	}
 	offline: {
-		if (AMX_INFO <= get_log_level()) debug(AMX_INFO, "'disconnected from ', connman_host.address, ' on port ', itoa(connman_host.port), ' ', IP_PROTOCOL_STRINGS[connman_host.protocol]");
 		connman_connect_status = CONNMAN_STATUS_DISCONNECTED;
+		connman_stat_offline++;
+		
+		if (AMX_INFO <= get_log_level()) debug(AMX_INFO, "'disconnected from ', connman_host.address, ' on port ', itoa(connman_host.port), ' ', IP_PROTOCOL_STRINGS[connman_host.protocol]");
 		connman_connect_count = 0;
 		
 		if (timeline_active(CONNMAN_BUFFPROC_TL)) timeline_kill(CONNMAN_BUFFPROC_TL);
@@ -548,8 +573,10 @@ data_event[connman_device] {
 		
 	}
 	onerror: {
-		if (AMX_ERROR <= get_log_level()) debug(AMX_ERROR, "'could not connect to ', connman_host.address, ' on port ', itoa(connman_host.port), ' ', IP_PROTOCOL_STRINGS[connman_host.protocol], ' (Error ', itoa(data.number), ' ', ip_error_desc(type_cast(data.number)), ')'");
 		connman_connect_status = CONNMAN_STATUS_ERROR;
+		connman_stat_error++;
+		
+		if (AMX_ERROR <= get_log_level()) debug(AMX_ERROR, "'could not connect to ', connman_host.address, ' on port ', itoa(connman_host.port), ' ', IP_PROTOCOL_STRINGS[connman_host.protocol], ' (Error ', itoa(data.number), ' ', ip_error_desc(type_cast(data.number)), ')'");
 		
 		if (data.number == 14) {
 			if (AMX_ERROR <= get_log_level()) debug(AMX_ERROR, "'closing unexpected open socket'");
@@ -617,7 +644,7 @@ timeline_event[CONNMAN_BUFFPROC_TL] {
 				if (timeline_active(timeline.id)) timeline_kill(timeline.id);
 				connman_connect();
 			} else 
-			if (!connman_validate_connection()) { // Confirm connectio to correct host
+			if (!connman_validate_connection()) { // Confirm connected to the correct host
 				if (AMX_INFO <= get_log_level()) debug(AMX_INFO, "'CONNMAN_BUFFPROC_TL', '(', itoa(timeline.repetition), ', ', itoa(timeline.sequence), ') ', 'host connection parameters are incorrect. disconnecting.'");
 				connman_disconnect(); // Subsequent connect event will cause for re-confguration of connection parameters
 			} else 
@@ -642,7 +669,11 @@ timeline_event[CONNMAN_BUFFPROC_TL] {
 		}
 		case 2: {
 			if (timeline_active(timeline.id)) { // Incase the timeline_event runs again whilst it is being terminated (http://www.amx.com/techsupport/technote.asp?id=1040)
-				if (AMX_DEBUG <= get_log_level()) debug(AMX_DEBUG, "'CONNMAN_BUFFPROC_TL', '(', itoa(timeline.repetition), ', ', itoa(timeline.sequence), ') ', 'waiting for connection to complete'");
+				if (connman_advance_on_response) {
+					if (AMX_DEBUG <= get_log_level()) debug(AMX_DEBUG, "'CONNMAN_BUFFPROC_TL', '(', itoa(timeline.repetition), ', ', itoa(timeline.sequence), ') ', 'waiting for response...'");
+				} else {
+					if (AMX_DEBUG <= get_log_level()) debug(AMX_DEBUG, "'CONNMAN_BUFFPROC_TL', '(', itoa(timeline.repetition), ', ', itoa(timeline.sequence), ') ', 'waiting...'");
+				}
 			}
 		}
 	}
