@@ -4,7 +4,15 @@ MODULE_NAME='snmp-manager'(dev vdvModule, dev connman_device, dev connman_server
 (***********************************************************)
 (***********************************************************)
 (***********************************************************)
-(*  FILE_LAST_MODIFIED_ON: 05/24/2016  AT: 21:27:01        *)
+(*  FILE_LAST_MODIFIED_ON: 07/24/2016  AT: 21:55:35        *)
+(***********************************************************)
+(*  FILE REVISION: Rev 8                                   *)
+(*  REVISION DATE: 07/10/2016  AT: 15:00:16                *)
+(*                                                         *)
+(*  COMMENTS:                                              *)
+(*  Parsing request ID into a 32-bit (long) integer        *)
+(*  (was 16-bit integer)                                   *)
+(*                                                         *)
 (***********************************************************)
 (*  FILE REVISION: Rev 7                                   *)
 (*  REVISION DATE: 05/23/2016  AT: 21:39:14                *)
@@ -84,6 +92,9 @@ MODULE_NAME='snmp-manager'(dev vdvModule, dev connman_device, dev connman_server
 	This module uses a seperately included client connection manager, listening 
 	socket manager, and debug library for ease of adoption and customisation.
 	
+	This module includes extensive debug information for clarity. This can 
+	significantly affect performance. Only enable debug output when necessary.
+	
 	Please consider contributing by submitting bug fixes and improvements.
 	
 	
@@ -91,9 +102,9 @@ MODULE_NAME='snmp-manager'(dev vdvModule, dev connman_device, dev connman_server
 	
 	DEFINE_MODULE 'snmp-manager' mdl(dev <snmp manager virtual device>, dev <client socket local port>, dev <trap listening socket local port>);
 	
-	send_command vdvSNMP, "'SNMPGET-<oid>[,<community>[,<host>[,<port>[,<request id>]]]]'";                 // Retrieve the value of a variable.
-	send_command vdvSNMP, "'SNMPGETNEXT-<oid>[,<community>[,<host>[,<port>[,<request id>]]]]'";             // Retrieve the value for the lexicographically next variable in the MIB in reference to the specified OID.
-	send_command vdvSNMP, "'SNMPSET-<oid>,<type>,<value>[,<community>[,<host>[,<port>[,<request id>]]]]'";  // Request to change the value of a variable. Send <value> as string and specify <type> as ASN.1 type (below).
+	send_command vdvSNMP, "'SNMPGET-<oid>[,<community>[,<agent address>[,<agent port>[,<request id>]]]]'";                 // Retrieve the value of a variable.
+	send_command vdvSNMP, "'SNMPGETNEXT-<oid>[,<community>[,<agent address>[,<agent port>[,<request id>]]]]'";             // Retrieve the value for the lexicographically next variable in the MIB in reference to the specified OID.
+	send_command vdvSNMP, "'SNMPSET-<oid>,<type>,<value>[,<community>[,<agent address>[,<agent port>[,<request id>]]]]'";  // Request to change the value of a variable. Send <value> as string and specify <type> as ASN.1 type (below).
 	
 	Responses and traps are passed as data_event strings to the vdvModule device in the following format:
 	
@@ -112,16 +123,16 @@ MODULE_NAME='snmp-manager'(dev vdvModule, dev connman_device, dev connman_server
 	send_command vdvSNMP, "'PROPERTY-DECODE_UNPRINTABLE,', booltostring(<true|false>)";                     // Display unprintable characters as hexidecimal values in debug messages. Default: true.
 	
 	send_command vdvSNMP, "'PROPERTY-IP_ADDRESS,', '<address>'";                                            // Default SNMP agent address. Default: <none>.
-	send_command vdvSNMP, "'PROPERTY-PORT,', itoa(<port>)";                                                 // Default SNMP agent port. Default: 161.
+	send_command vdvSNMP, "'PROPERTY-PORT,', itoa(<agent port>)";                                                 // Default SNMP agent port. Default: 161.
 	send_command vdvSNMP, "'PROPERTY-COMMUNITY,', '<community>'";                                           // Default SNMP community name. Default: public.
-	send_command vdvSNMP, "'PROPERTY-TRAP_PORT,', itoa(<port>)";                                            // SNMP trap listener port. Specify 0 to disable the listening socket. Default: 162.
+	send_command vdvSNMP, "'PROPERTY-TRAP_PORT,', itoa(<agent port>)";                                            // SNMP trap listener port. Specify 0 to disable the listening socket. Default: 162.
 
+	send_command vdvSNMP, "'PROPERTY-CONNECT_ATTEMPTS', itoa(<num>)");                                      // Maximum number of attempts to open a SNMP agent client socket. Default: 3.
 	send_command vdvSNMP, "'PROPERTY-CONNECT_DELAY,', itoa(<msec>)";                                        // Delay between (failed) connection attempts. Default: 5000ms.
-	send_command vdvSNMP, "'PROPERTY-MAX_CONNECTION_ATTEMPTS', itoa(<num>)");                               // Maximum number of attempts to open a SNMP agent client socket. Default: 3.
 
+	send_command vdvSNMP, "'PROPERTY-SEND_ATTEMPTS,', itoa(<num>)";                                         // Transmit SNMP requests for <num> times until a response is received. Default: 2.
 	send_command vdvSNMP, "'PROPERTY-SEND_DELAY,', itoa(<msec>)";                                           // Delay between SNMP requests to which a response is not received. Default: 1000ms.
-	send_command vdvSNMP, "'PROPERTY-ADVANCE_ON_RESPONSE', booltostring(<true|false>)");                    // Immediately send the next request when a response is received. Default: true.
-	send_command vdvSNMP, "'PROPERTY-AUTO_RETRANSMIT,', itoa(<num>)";                                       // Re-transmit SNMP requests for which a response is not received. Default: 1.
+	send_command vdvSNMP, "'PROPERTY-ADVANCE_ON_RESPONSE', booltostring(<true|false>)");                    // Immediately send the next request when a response is received, irrespective of the SEND_DELAY. Default: true.
 
 	send_command vdvSNMP, "'REINIT'";
 *)
@@ -138,24 +149,22 @@ DEFINE_CONSTANT
 
 integer             DATA_INITIALIZED                        =   252;            // Feedback: Data initialized event
 
-char                NULL[]                                  =  "$00";           // Defined in this manner to ensure it is evaluated a string
-
 integer             MAX_LEN_STR                             =   255;
 integer             MAX_LEN_FQDN                            =   255;
 integer             MAX_LEN_LONG                            =    10;            // 4294967295
-integer             MAX_LEN_LONG_ENCODED                    =     4;            // 32-bit unsigned integer in base256
 integer             MAX_LEN_INTEGER                         =     5;            // 65535
-integer             MAX_LEN_LONG_BASE128                    =     8;            // 4 * 2; // 32-bit unsigned integer in base128
+integer             MAX_LEN_LONG_BASE128                    =     8;            // 32-bit unsigned integer in base128
+integer             MAX_LEN_LONG_BASE256                    =     4;            // 32-bit unsigned integer in base256
 
 integer             MAX_NUM_SNMP_TAGS                       =    25;
 integer             MAX_LEN_SNMP_MESSAGE                    =  1500;            // Cisco default
 integer             MAX_LEN_SNMP_TAG_VALUE                  = 65535;            // Cannot use MAX_LEN_OCTET_STRING (compiler reports symbol is not defined)
 
 integer             MAX_LEN_OCTET_STRING                    = 65535;            // Defined explicitly instead calculating or referencing other constants to avoid compiler errors
-integer             MAX_NUM_OID_SUB_IDENTIFIER              =   128;
-integer             MAX_LEN_OID_SUB_IDENTIFIER              =    10;            // MAX_LEN_LONG; // ASCII representation of 32-bit unsigned integer
-integer             MAX_LEN_OID                             =  1407;            // (MAX_NUM_OID_SUB_IDENTIFIER * MAX_LEN_OID_SUB_IDENTIFIER) + (MAX_NUM_OID_SUB_IDENTIFIER - 1); // 4294967295.4294967295.4294967295.4294967295.4294967295
-integer             MAX_LEN_OID_ENCODED                     =  1009;            // 1 + ((MAX_NUM_OID_SUB_IDENTIFIER - 2) * (4 * 2)); // First two sub identifiers are stored in the first octet, with subsequent encoded in base128
+integer             MAX_NUM_OID_NODE                        =   128;
+integer             MAX_LEN_OID_NODE                        =    10;            // MAX_LEN_LONG; // ASCII representation of 32-bit unsigned integer
+integer             MAX_LEN_OID                             =  1407;            // (MAX_NUM_OID_NODE * MAX_LEN_OID_NODE) + (MAX_NUM_OID_NODE - 1); // 4294967295.4294967295.4294967295.4294967295.4294967295
+integer             MAX_LEN_OID_ENCODED                     =  1009;            // 1 + ((MAX_NUM_OID_NODE - 2) * (4 * 2)); // First two sub identifiers are stored in the first octet, with subsequent encoded in base128
 integer             MAX_LEN_IPADDRESS                       =    15;            // (3 * 4) + 3;
 integer             MAX_LEN_IPADDRESS_ENCODED               =     4;
 integer             NUM_IPADDRESS_OCTETS                    =     4;
@@ -266,6 +275,32 @@ char                SNMP_ERROR_STRINGS[][72] = {
 						'The SNMP manager attempted to set a read-only parameter', 
 						'General Error'
 					}
+
+integer             SNMP_GET_CMD_PARAM_OID                  =     1;
+integer             SNMP_GET_CMD_PARAM_COMMUNITY            =     2;
+integer             SNMP_GET_CMD_PARAM_AGENT_ADDR           =     3;
+integer             SNMP_GET_CMD_PARAM_AGENT_PORT           =     4;
+integer             SNMP_GET_CMD_PARAM_REQUEST_ID           =     5;
+
+integer             SNMP_SET_CMD_PARAM_OID                  =     1;
+integer             SNMP_SET_CMD_PARAM_TYPE                 =     2;
+integer             SNMP_SET_CMD_PARAM_VALUE                =     3;
+integer             SNMP_SET_CMD_PARAM_COMMUNITY            =     4;
+integer             SNMP_SET_CMD_PARAM_AGENT_ADDR           =     5;
+integer             SNMP_SET_CMD_PARAM_AGENT_PORT           =     6;
+integer             SNMP_SET_CMD_PARAM_REQUEST_ID           =     7;
+
+integer             SNMP_RESPONSE_PARAM_OID                 =     1;
+integer             SNMP_RESPONSE_PARAM_VALUE               =     2;
+integer             SNMP_RESPONSE_PARAM_TYPE                =     3;
+integer             SNMP_RESPONSE_PARAM_COMMUNITY           =     4;
+integer             SNMP_RESPONSE_PARAM_SOURCE_ADDR         =     5;
+integer             SNMP_RESPONSE_PARAM_REQUEST_ID          =     6;
+integer             SNMP_RESPONSE_PARAM_ENTERPRISE          =     6;
+integer             SNMP_RESPONSE_PARAM_AGENT_ADDR          =     7;
+integer             SNMP_RESPONSE_PARAM_GENERIC_TRAP        =     8;
+integer             SNMP_RESPONSE_PARAM_SPECIFIC_TRAP       =     9;
+integer             SNMP_RESPONSE_PARAM_TIME_STAMP          =    10;
 
 (***********************************************************)
 (*              DATA TYPE DEFINITIONS GO BELOW             *)
@@ -379,22 +414,22 @@ define_function long atol_unsigned(char str[]) {
 	stack_var volatile integer i;
 	stack_var volatile long l;
 	
-	// if (AMX_DEBUG <= get_log_level()) debug(AMX_DEBUG, "'atol_unsigned', '(', 'str', ')'");
-
+	if (AMX_DEBUG <= get_log_level()) debug(AMX_DEBUG, "'atol_unsigned', '(', str, ')'");
+	
 	for (i = 1; i <= length_string(str); i++) {
 		stack_var volatile integer digit;
 		
-		digit = atoi("str[i]");
-		if ((digit < '0') || (digit > '9')) {
-			// if (AMX_DEBUG <= get_log_level()) debug(AMX_DEBUG, "'atol_unsigned', '() ', 'stopping at non-numerical character "', str[i], '"'");
+		if ((str[i] < '0') || (str[i] > '9')) {
+			if (AMX_DEBUG <= get_log_level()) debug(AMX_DEBUG, "'atol_unsigned', '() ', 'stopping at non-numerical character "', str[i], '"'");
 			break;
 		}
 		
+		digit = atoi("str[i]");
 		l = l * 10;
 		l = l + digit;
 	}
 	
-	// if (AMX_DEBUG <= get_log_level()) debug(AMX_DEBUG, "'atol_unsigned', '() ', 'returning ', ltoa(l)");
+	if (AMX_DEBUG <= get_log_level()) debug(AMX_DEBUG, "'atol_unsigned', '() ', 'returning ', ltoa(l)");
 	return l;
 }
 
@@ -603,7 +638,7 @@ define_function reinitialize() {
 
 	// This module uses connman_buffer_add_ex() to specify the server address, port, and protocol for each string sent. connman_reinitialize() is still called to configure other parameters (such as connect and retry interval).
 	// connman_setProperty('HOST', '<address>');
-	// connman_setProperty('PORT', itoa(<port>));
+	// connman_setProperty('PORT', itoa(<agent port>));
 	// connman_setProperty('PROTOCOL', itoa(IP_UDP_2WAY));
 
 	connman_server_setProperty('PROTOCOL', itoa(IP_UDP));
@@ -624,7 +659,7 @@ define_function integer snmp_request(_connman_host host, _snmp_request request) 
 	stack_var volatile long timer;
 	stack_var volatile char message[MAX_LEN_STR];
 	
-	if (AMX_DEBUG <= get_log_level()) debug(AMX_DEBUG, "'snmp_request', '(', '_connman_host ', host.address, ':', itoa(host.port), ', ', request.pdu, ', ', request.oid, '@', request.community, ', ', request.tag.type, ', ', request.tag.contents, ')'");
+	if (AMX_DEBUG <= get_log_level()) debug(AMX_DEBUG, "'snmp_request', '(', '_connman_host ', host.address, ':', itoa(host.port), ', ', request.pdu, ', ', request.oid, '@', request.community, ', ', request.tag.type, ', ', request.tag.contents, ', ', ltoa(request.id), ')'");
 	
 	if (!host.protocol)                    host.protocol = IP_UDP_2WAY;
 	if (!length_string(host.address))      host.address = snmp_agent.address;
@@ -651,16 +686,16 @@ define_function integer snmp_request(_connman_host host, _snmp_request request) 
 	
 	message = 
 		asn1_tag_encode(ASN1_TAG_SEQUENCE, "
-			asn1_tag_encode(ASN1_TAG_INTEGER, NULL),                            // SNMP Version
+			asn1_tag_encode(ASN1_TAG_INTEGER, '0'),                             // SNMP Version
 			asn1_tag_encode(ASN1_TAG_OCTET_STRING, request.community),          // SNMP Community
 			asn1_tag_encode(request.pdu, "                                      // SNMP GetRequest PDU
-			asn1_tag_encode(ASN1_TAG_INTEGER, itoa(request.id)),                // Request ID
-			asn1_tag_encode(ASN1_TAG_INTEGER, NULL),                            // Error
-			asn1_tag_encode(ASN1_TAG_INTEGER, NULL),                            // Error Index
+			asn1_tag_encode(ASN1_TAG_INTEGER, ltoa(request.id)),                // Request ID
+			asn1_tag_encode(ASN1_TAG_INTEGER, '0'),                             // Error
+			asn1_tag_encode(ASN1_TAG_INTEGER, '0'),                             // Error Index
 			asn1_tag_encode(ASN1_TAG_SEQUENCE, "                                // Varbind List
 				asn1_tag_encode(ASN1_TAG_SEQUENCE, "                            // Varbind
-				asn1_tag_encode(ASN1_TAG_OBJECT_IDENTIFIER, request.oid),       // Object Identifier
-				asn1_tag_encode(request.tag.type, request.tag.contents)         // Value
+					asn1_tag_encode(ASN1_TAG_OBJECT_IDENTIFIER, request.oid),   // Object Identifier
+					asn1_tag_encode(request.tag.type, request.tag.contents)     // Value
 				")
 			")
 		")
@@ -693,7 +728,7 @@ define_function char[MAX_LEN_OCTET_STRING] asn1_tag_encode(char type, char value
 			// Octet string does not need encoding
 		}
 		case ASN1_TAG_INTEGER: {
-			value = raw_be(atoi(value));
+			value = raw_be(atol_unsigned(value));
 		}
 		case ASN1_TAG_TIMETICKS: {
 			value = raw_be(atol(value));
@@ -708,7 +743,7 @@ define_function char[MAX_LEN_OCTET_STRING] asn1_tag_encode(char type, char value
 			value = asn1_tag_oid_encode(value);
 		}
 		case ASN1_TAG_NULL: {
-			value = "";
+			value = '';
 		}
 	}
 	
@@ -742,20 +777,20 @@ define_function char[MAX_LEN_ASN1_LENGTH_ENCODED] asn1_length_encode(long length
 
 define_function char[MAX_LEN_OID_ENCODED] asn1_tag_oid_encode(char str[]) {
 	stack_var volatile integer i;
-	stack_var volatile char oid_sub_identifiers[MAX_NUM_OID_SUB_IDENTIFIER][MAX_LEN_LONG];
+	stack_var volatile char oid_nodes[MAX_NUM_OID_NODE][MAX_LEN_LONG];
 	stack_var volatile char ret[MAX_LEN_OID_ENCODED];
 	
 	if (AMX_DEBUG <= get_log_level()) debug(AMX_DEBUG, "'asn1_tag_oid_encode', '(', str, ')'");
 	
-	explode(str, '.', '', oid_sub_identifiers);
+	explode(str, '.', '', oid_nodes);
 	
-	ret = "(atoi(oid_sub_identifiers[1]) * 40) + atoi(oid_sub_identifiers[2])";
+	ret = "(atoi(oid_nodes[1]) * 40) + atoi(oid_nodes[2])";
 	
-	for (i = 3; i <= length_array(oid_sub_identifiers); i++) {
+	for (i = 3; i <= length_array(oid_nodes); i++) {
 		stack_var volatile char base128_str[MAX_LEN_LONG_BASE128];
 		stack_var volatile integer o;
 		
-		base128_str = base128_encode(atoi(oid_sub_identifiers[i])); // Get base128-encoded long
+		base128_str = base128_encode(atoi(oid_nodes[i])); // Get base128-encoded long
 		
 		for (o = 1; o < length_array(base128_str); o++) { // Add bitmask to all but final octet
 			base128_str[o] = base128_str[o] BOR ASN1_BITMASK_LENGTH_LONG;
@@ -822,7 +857,7 @@ define_function integer asn1_tag_decode(char str[], _tag tags[]) {
 		
 		switch (tags[i].type) {
 			case ASN1_TAG_OCTET_STRING: {
-			// Octet string does not need decoding
+				// Octet string does not need decoding
 			}
 			case ASN1_TAG_INTEGER: {
 				tags[i].contents = ltoa(rawtol(tags[i].contents));
@@ -843,7 +878,7 @@ define_function integer asn1_tag_decode(char str[], _tag tags[]) {
 				tags[i].contents = asn1_tag_oid_decode(tags[i].contents);
 			}
 			case ASN1_TAG_NULL: {
-				tags[i].contents = NULL;
+				tags[i].contents = '';
 			}
 		}
 		
@@ -863,7 +898,7 @@ define_function integer asn1_tag_decode(char str[], _tag tags[]) {
 define_function char[MAX_LEN_OID] asn1_tag_oid_decode(char str[]) {
 	stack_var volatile integer pos, i;
 	stack_var volatile char base128_str[MAX_LEN_LONG_BASE128];
-	stack_var volatile char oid[MAX_NUM_OID_SUB_IDENTIFIER][MAX_LEN_OID_SUB_IDENTIFIER];
+	stack_var volatile char oid[MAX_NUM_OID_NODE][MAX_LEN_OID_NODE];
 	stack_var volatile char ret[MAX_LEN_OID]
 	
 	if (AMX_DEBUG <= get_log_level()) debug(AMX_DEBUG, "'asn1_tag_oid_decode', '(', str, ')'");
@@ -944,17 +979,17 @@ setProperty('COMMUNITY', 'public');                                             
 // connman_reinitialize() will be called by module-specific reinitialize()
 
 // connman_setProperty("'IP_ADDRESS', '<address>'");                            // Server address.
-// connman_setProperty("'PORT', itoa(<port>)");                                 // Server port.
+// connman_setProperty("'PORT', itoa(<agent port>)");                                 // Server port.
 // connman_setProperty("'PROTOCOL', itoa(<IP_TCP|IP_UDP|IP_UDP_2WAY>)");        // Transport protocol using NetLinx transport protocol constants.
 
 connman_setProperty('CONNECT_DELAY', itoa(1000));                               // Delay between connection attempts. Default: 5000ms.
-// connman_setProperty('MAX_CONNECTION_ATTEMPTS', itoa(<num>)");                // Maximum number of connection attempts. Default: 3.
+// connman_setProperty('CONNECT_ATTEMPTS', itoa(<num>)");                       // Maximum number of connection attempts. Default: 3.
 // connman_setProperty('AUTO_DISCONNECT', booltostring(<true|false>)");         // Automatically disconnect when all strings in the buffer have been sent. Default: false.
 // connman_setProperty('AUTO_RECONNECT', booltostring(<true|false>)");          // Automatically re-connect if the connection drops. Also connects on reinitialize() without buffer contents. Default: false.
 
+connman_setProperty('SEND_ATTEMPTS', itoa(2));                                  // Send strings sent from the outbound buffer <num> times at the SEND_DELAY interval until a response is received. Default: 1.
 connman_setProperty('SEND_DELAY', itoa(1000));                                  // Delay between concurrent strings sent from the outbound butter. Default: 0msec.
 connman_setProperty('ADVANCE_ON_RESPONSE', booltostring(true));                 // Advance the outbound buffer when a respons is received. Default: false.
-connman_setProperty('AUTO_RETRANSMIT', itoa(1));                                // Re-transmit strings sent from the buffer <num> times at the SEND_DELAY interval until a response is received. Default: 0 (transmit once).
 
 // connman_reinitialize();
 
@@ -1003,63 +1038,56 @@ data_event[vdvModule] {
 				if (AMX_INFO <= get_log_level()) debug(AMX_INFO, "'data_event command reinit: re-initializing...'");
 				reinitialize();
 			}
-			case 'SNMPGET':       // SNMPGET-<oid>[,<community>[,<host>[,<port>[,<request id>]]]]
-			case 'SNMPGETNEXT': { // SNMPGETNEXT-<oid>[,<community>[,<host>[,<port>[,<request id>]]]]
+			case 'SNMPGET':       // SNMPGET-<oid>[,<community>[,<agent address>[,<agent port>[,<request id>]]]]
+			case 'SNMPGETNEXT': { // SNMPGETNEXT-<oid>[,<community>[,<agent address>[,<agent port>[,<request id>]]]]
 				stack_var char parts[5][MAX_LEN_OCTET_STRING];
 				
 				explode(data.text, ',', '"', parts);
 				
-				if (length_array(parts) < 1) {
+				if (length_array(parts) < SNMP_GET_CMD_PARAM_OID) {
 					if (AMX_ERROR <= get_log_level()) debug(AMX_ERROR, "'data_event command ', lower_string(cmd), ': ', 'could not parse parameters!'");
-					if (AMX_ERROR <= get_log_level()) debug(AMX_ERROR, "'data_event command ', lower_string(cmd), ': ', 'usage: ', cmd, '-<oid>[,<community>[,<host>[,<port>[,<request id>]]]]'");
+					if (AMX_ERROR <= get_log_level()) debug(AMX_ERROR, "'data_event command ', lower_string(cmd), ': ', 'usage: ', cmd, '-<oid>[,<community>[,<agent address>[,<agent port>[,<request id>]]]]'");
 				} else {
 					stack_var volatile _snmp_request request;
 					stack_var volatile _connman_host host;
 					
-					if (length_array(parts) >= 2) request.community = parts[2];
-					if (length_array(parts) >= 3) host.address      = parts[3];
-					if (length_array(parts) >= 4) host.port         = atoi(parts[4]);
-					if (length_array(parts) >= 5) request.id        = atoi(parts[5]);
+					if (length_array(parts) >= SNMP_GET_CMD_PARAM_AGENT_ADDR) host.address         = parts[SNMP_GET_CMD_PARAM_AGENT_ADDR];
+					if (length_array(parts) >= SNMP_GET_CMD_PARAM_AGENT_PORT) host.port            = atoi(parts[SNMP_GET_CMD_PARAM_AGENT_PORT]);
 					
 					switch (cmd) {
-						case 'SNMPGET': {
-							request.pdu         = ASN1_TAG_GETREQUEST_PDU;
-							request.oid         = parts[1];
-							request.tag.type    = ASN1_TAG_NULL;
-							
-							snmp_request(host, request);
-						}
-						case 'SNMPGETNEXT': {
-							request.pdu         = ASN1_TAG_GETNEXTREQUEST_PDU;
-							request.oid         = parts[1];
-							request.tag.type    = ASN1_TAG_NULL;
-							
-							snmp_request(host, request);
-						}
+						case 'SNMPGET':                                       request.pdu          = ASN1_TAG_GETREQUEST_PDU;
+						case 'SNMPGETNEXT':                                   request.pdu          = ASN1_TAG_GETNEXTREQUEST_PDU;
 					}
+																			  request.oid          = parts[SNMP_GET_CMD_PARAM_OID];
+																			  request.tag.type     = ASN1_TAG_NULL;
+					if (length_array(parts) >= SNMP_GET_CMD_PARAM_COMMUNITY)  request.community    = parts[SNMP_GET_CMD_PARAM_COMMUNITY];
+					if (length_array(parts) >= SNMP_GET_CMD_PARAM_REQUEST_ID) request.id           = atol_unsigned(parts[SNMP_GET_CMD_PARAM_REQUEST_ID]);
+					
+					snmp_request(host, request);
 				}
 			}
-			case 'SNMPSET': { // SNMPSET-<oid>,<type>,<value>[,<community>[,<host>[,<port>[,<request id>]]]]
+			case 'SNMPSET': { // SNMPSET-<oid>,<type>,<value>[,<community>[,<agent address>[,<agent port>[,<request id>]]]]
 				stack_var char parts[7][MAX_LEN_OCTET_STRING];
 				
 				explode(data.text, ',', '"', parts);
 				
-				if (length_array(parts) < 3) {
+				if (length_array(parts) < SNMP_SET_CMD_PARAM_TYPE) {
 					if (AMX_ERROR <= get_log_level()) debug(AMX_ERROR, "'data_event command ', lower_string(cmd), ': ', 'could not parse parameters!'");
-					if (AMX_ERROR <= get_log_level()) debug(AMX_ERROR, "'data_event command ', lower_string(cmd), ': ', 'usage: SNMPSET-<oid>,<type>,<value>[,<community>[,<host>[,<port>[,<request id>]]]]'");
+					if (AMX_ERROR <= get_log_level()) debug(AMX_ERROR, "'data_event command ', lower_string(cmd), ': ', 'usage: SNMPSET-<oid>,<type>,<value>[,<community>[,<agent address>[,<agent port>[,<request id>]]]]'");
 				} else {
 					stack_var volatile _snmp_request request;
 					stack_var volatile _connman_host host;
 					
-					if (length_array(parts) >= 4) request.community = parts[4];
-					if (length_array(parts) >= 5) host.address      = parts[5];
-					if (length_array(parts) >= 6) host.port         = atoi(parts[6]);
-					if (length_array(parts) >= 7) request.id        = atoi(parts[7]);
+					if (length_array(parts) >= SNMP_SET_CMD_PARAM_AGENT_ADDR) host.address         = parts[SNMP_SET_CMD_PARAM_AGENT_ADDR];
+					if (length_array(parts) >= SNMP_SET_CMD_PARAM_AGENT_PORT) host.port            = atoi(parts[SNMP_SET_CMD_PARAM_AGENT_PORT]);
 					
-					request.pdu                 = ASN1_TAG_SETREQUEST_PDU;
-					request.oid                 = parts[1];
-					request.tag.type            = parts[2][1];
-					request.tag.contents        = parts[3];
+																			  request.pdu          = ASN1_TAG_SETREQUEST_PDU;
+																			  
+																			  request.oid          = parts[SNMP_SET_CMD_PARAM_OID];
+																			  request.tag.type     = parts[SNMP_SET_CMD_PARAM_TYPE][1];
+																			  request.tag.contents = parts[SNMP_SET_CMD_PARAM_VALUE];
+					if (length_array(parts) >= SNMP_SET_CMD_PARAM_COMMUNITY)  request.community    = parts[SNMP_SET_CMD_PARAM_COMMUNITY];
+					if (length_array(parts) >= SNMP_SET_CMD_PARAM_REQUEST_ID) request.id           = atol_unsigned(parts[SNMP_SET_CMD_PARAM_REQUEST_ID]);
 					
 					snmp_request(host, request);
 				}
@@ -1167,7 +1195,8 @@ data_event[connman_server_device] {
 						'"', snmp_varbind[SNMP_VARBIND_FIELD_VALUE].contents, '"', ',', 
 						ASN1_TAG_STRINGS[array_search(snmp_varbind[SNMP_VARBIND_FIELD_VALUE].type, ASN1_TAGS)], ',', 
 						snmp_message[SNMP_MESSAGE_FIELD_COMMUNITY].contents, ',', 
-						data.sourceip, ',', 
+						// data.sourceip, ',', 
+						snmp_pdu[SNMP_PDU_FIELD_AGENT_ADDR], ',', 
 						snmp_pdu[SNMP_PDU_FIELD_ENTERPRISE].contents, ',', 
 						snmp_pdu[SNMP_PDU_FIELD_AGENT_ADDR].contents, ',', 
 						snmp_pdu[SNMP_PDU_FIELD_GENERIC_TRAP].contents, ',', 
