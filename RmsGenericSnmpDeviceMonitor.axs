@@ -1,6 +1,6 @@
 MODULE_NAME='RmsGenericSnmpDeviceMonitor'(dev vdvRMS, dev vdvDeviceModule, dev dvMonitoredDevice, dev vdvSNMP)
 (***********************************************************)
-(*  FILE_LAST_MODIFIED_ON: 07/24/2016  AT: 21:20:51        *)
+(*  FILE_LAST_MODIFIED_ON: 08/30/2016  AT: 16:15:10        *)
 (***********************************************************)
 
 (***********************************************************)
@@ -69,8 +69,8 @@ MODULE_NAME='RmsGenericSnmpDeviceMonitor'(dev vdvRMS, dev vdvDeviceModule, dev d
 	
 	send_command vdvDeviceModule, "'PROPERTY-ASSET_NAME', '<name>'";                                        // Override the asset name, which is otherwise retrieved from iso.org.dod.internet.mgmt.mib-2.system.sysName
 	
-	send_command vdvDeviceModule, "'PROPERTY-CONTACT_TIMEOUT', itoa(<seconds>)";                            // Time in seconds after which, if no status updates have been received from the device, to mark the device as offline. This value must be greater than the POLL_INTERVAL.
-	send_command vdvDeviceModule, "'POLL_INTERVAL', itoa(<seconds>)|DISABLE`";                              // Time in seconds between requests for device status updates. Set this to 0 (disable) if the device will send SNMP TRAPs as changes occur.
+	send_command vdvDeviceModule, "'PROPERTY-CONTACT_TIMEOUT', itoa(<seconds>)";                            // Time in seconds after which, if no status updates have been received from the device, to mark the device as offline. This value must be greater than the POLL_INTERVAL. Default: 190 seconds.
+	send_command vdvDeviceModule, "'POLL_INTERVAL', itoa(<seconds>)|DISABLE`";                              // Time in seconds between requests for device status updates. Set this to 0 (disable) if the device will send SNMP TRAPs as changes occur. Default: 60 aeconds.
 	
 	send_command vdvDeviceModule, "'REINIT'";                                                               // Re-initialise the module and start the polling interval process.
 *)
@@ -96,11 +96,15 @@ char                ENTERPRISE_NUMBERS[][2][15]             = {                 
 					}
 char                ENTERPRISE_MODELS[][2][15]              = {                 // RMS Asset model name. http://www.dpstele.com/snmp/what-does-oid-network-elements.php
 						{'311.1.1.3.1.1', 'Workstation'}, 
-						{'311.1.1.3.1.2', 'Server'}
+						{'311.1.1.3.1.2', 'Server'}, 
+						{'9.1.1362', 'AP802GN'}, 
+						{'9.1.1377', 'C887VA-W'}, 
+						{'9.1.1154', 'SRP521W'}
 					}
 char                ENTERPRISE_TYPES[][2][15]               = {                 // RMS Asset type key. These must exist in RMS database for successful asset registration!
 						{'311.1.1.3.1.1', 'Utility'}, 
-						{'311.1.1.3.1.2', 'Utility'}
+						{'311.1.1.3.1.2', 'Utility'}, 
+						{'9.1.1154', 'Utility'}
 					}
 
 (***********************************************************)
@@ -139,7 +143,7 @@ Define an larger DUET_MAX_PARAM_LEN value as required.
 // #DEFINE MAX_LEN_VARBIND_VALUE                                50              // Maximum length of cached parameter varbind value. Default: 50 as per RmsAssetParameter.initialValue in RmsApi
 #DEFINE INCLUDE_VARBIND_UPDATED_CALLBACK
 #DEFINE INCLUDE_DEVICE_INFO_POLL_CALLBACK
-#DEFINE INCLUDE_DEVICE_STATUS_POLL_CALLBACK
+// #DEFINE INCLUDE_DEVICE_STATUS_POLL_CALLBACK
 #INCLUDE 'SnmpMonitorCommon';
 
 (***********************************************************)
@@ -268,7 +272,7 @@ DEFINE_FUNCTION SynchronizeAssetParameters()
 	
 	RmsAssetParameterEnqueueSetValue(assetClientKey, 'uptime', timeticks_to_time(atol_unsigned(array_get(varbinds, OID_sysUpTime))));
 
-	RmsAssetParameterUpdatesSubmit(assetClientKey); // RMS SDK monitor modules incorrectly call RmsAssetParameterSubmit() here
+	RmsAssetParameterUpdatesSubmit(assetClientKey); // Corrected. Monitor modules included with the RMS SDK incorrectly call RmsAssetParameterSubmit() here
 }
 
 
@@ -406,14 +410,28 @@ DEFINE_FUNCTION ExecuteAssetControlMethod(CHAR methodKey[], CHAR arguments[])
 
 // #DEFINE INCLUDE_DEVICE_INFO_POLL_CALLBACK
 define_function device_info_poll_callback() {
+	/*
+	SnmpMonitorCommon will automatically poll the following
+	OIDs when the device becomes reachable:
+
 	snmp_get(OID_sysDescr);
 	snmp_get(OID_sysObjectID);
 	snmp_get(OID_sysName);
+
+	Add additional device-specific OIDs to poll here.
+	*/
 }
 
 // #DEFINE INCLUDE_DEVICE_STATUS_POLL_CALLBACK
 define_function device_status_poll_callback() {
+	/*
+	SnmpMonitorCommon will automatically poll the following
+	OIDs at regular intervals:
+	
 	snmp_get(OID_sysUpTime);
+	
+	Add additional device-specific OIDs to poll here.
+	*/
 }
 
 // #DEFINE INCLUDE_VARBIND_UPDATED_CALLBACK

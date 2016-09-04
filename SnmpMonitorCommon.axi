@@ -2,7 +2,7 @@ PROGRAM_NAME='SnmpMonitorCommon'
 (***********************************************************)
 (*  FILE CREATED ON: 05/21/2016  AT: 20:18:04              *)
 (***********************************************************)
-(*  FILE_LAST_MODIFIED_ON: 07/24/2016  AT: 09:46:17        *)
+(*  FILE_LAST_MODIFIED_ON: 09/04/2016  AT: 20:45:43        *)
 (***********************************************************)
 (*
 This virtual device module must be monitored by a SNAPI 
@@ -51,7 +51,7 @@ integer             MAX_NUM_VARBINDS                        =  25;              
 integer             MAX_LEN_VARBIND_VALUE                   =  50;                                  // Constrained to maximum size of initialValue in RmsAssetParameter structure as defined in RmsApi
 #END_IF
 
-long                CONTACT_TIMEOUT                         = 300;                                  // Default seconds of no contact after which to consider asset to be offline (max time between traps received or SNMPGET polls)
+long                CONTACT_TIMEOUT                         = 190;                                  // Default seconds of no contact after which to consider asset to be offline (max time between traps received or SNMPGET polls)
 long                POLL_INTERVAL                           =  60;                                  // Default seconds between update SNMP GET messages
 long                CHANGE_POLL_DELAY                       =   3;                                  // Seconds after which to request a status update post a change.
 
@@ -173,7 +173,7 @@ define_function integer reinitialize() {
 	
 	if (AMX_DEBUG <= get_log_level()) debug("'reinitialize', '()'");
 	
-	timeline_kill(STATUS_POLL_TL);
+	if (timeline_active(STATUS_POLL_TL)) timeline_kill(STATUS_POLL_TL);
 	
 	array_clear(varbinds);
 	
@@ -621,7 +621,24 @@ data_event[vdvSNMP] {
 					
 					contact_last_seen = "date, ' ', time";
 					
-					on[vdvDeviceModule, DEVICE_COMMUNICATING];
+					// Device has become contactable
+					if (![vdvDeviceModule, DEVICE_COMMUNICATING]) {
+						on[vdvDeviceModule, DEVICE_COMMUNICATING];
+					}
+					
+					// Attmept to retrieve device information when the devices becomes contactable.
+					// Here instead of in DEVICE_COMMUNICATING channel event to ensure polling continues until the information received (otherwise would only be requested once)
+					if (![vdvDeviceModule, DATA_INITIALIZED]) {
+						if (parts[SNMP_RESPONSE_PARAM_OID] == OID_sysUpTime) { // Only poll the device following a response to OID_sysUpTime queried at a regular interval
+							snmp_get(OID_sysDescr);
+							snmp_get(OID_sysObjectID);
+							snmp_get(OID_sysName);
+							
+							#IF_DEFINED INCLUDE_DEVICE_INFO_POLL_CALLBACK
+							device_info_poll_callback();
+							#END_IF
+						}
+					}
 					
 					if (!timeline_active(CONTACT_TIMEOUT_TL)) {
 						timeline_create(CONTACT_TIMEOUT_TL, CONTACT_TIMEOUT_TIMES, length_array(CONTACT_TIMEOUT_TIMES), TIMELINE_ABSOLUTE, TIMELINE_ONCE);
@@ -642,17 +659,11 @@ data_event[vdvSNMP] {
 	}
 }
 
-channel_event[vdvDeviceModule, DEVICE_COMMUNICATING] {
-	on: {
-		#IF_DEFINED INCLUDE_DEVICE_INFO_POLL_CALLBACK
-		device_info_poll_callback();
-		#END_IF
-	}
-}
-
 timeline_event[STATUS_POLL_TL] {
 	switch (timeline.sequence) {
 		case 1: {
+			snmp_get(OID_sysUpTime);
+			
 			#IF_DEFINED INCLUDE_DEVICE_STATUS_POLL_CALLBACK
 			device_status_poll_callback();
 			#END_IF

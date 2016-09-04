@@ -4,7 +4,7 @@ MODULE_NAME='snmp-manager'(dev vdvModule, dev connman_device, dev connman_server
 (***********************************************************)
 (***********************************************************)
 (***********************************************************)
-(*  FILE_LAST_MODIFIED_ON: 07/24/2016  AT: 21:55:35        *)
+(*  FILE_LAST_MODIFIED_ON: 08/15/2016  AT: 11:17:02        *)
 (***********************************************************)
 (*  FILE REVISION: Rev 8                                   *)
 (*  REVISION DATE: 07/10/2016  AT: 15:00:16                *)
@@ -676,6 +676,9 @@ define_function integer snmp_request(_connman_host host, _snmp_request request) 
 	if (length_string(connman_buffer_out[connman_buffer_out_pos_in].str)) {
 		if (AMX_ERROR <= get_log_level()) debug(AMX_ERROR, "'snmp_request', '() ', 'outbound buffer is full. Cannot send message!'");
 		if (AMX_DEBUG <= get_log_level()) debug(AMX_DEBUG, "'snmp_request', '() ', 'returning false'");
+		
+        connman_buffer_process(); // FIX THIS
+		
 		return false;
 	}
 	

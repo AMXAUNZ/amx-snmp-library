@@ -4,7 +4,7 @@ PROGRAM_NAME='Example (RmsMonitorModule)'
 (***********************************************************)
 (***********************************************************)
 (***********************************************************)
-(*  FILE_LAST_MODIFIED_ON: 07/24/2016  AT: 21:40:24        *)
+(*  FILE_LAST_MODIFIED_ON: 08/30/2016  AT: 16:31:39        *)
 (***********************************************************)
 (* System Type : NetLinx                                   *)
 (***********************************************************)
@@ -59,6 +59,7 @@ DEFINE_MUTUALLY_EXCLUSIVE
 (* EXAMPLE: DEFINE_FUNCTION <RETURN_TYPE> <NAME> (<PARAMETERS>) *)
 (* EXAMPLE: DEFINE_CALL '<NAME>' (<PARAMETERS>) *)
 
+DEFINE_MODULE 'RmsNetLinxAdapter_dr4_0_0'   mdlRmsNetLinxAdapter(vdvRms);
 DEFINE_MODULE 'snmp-manager'                mdlSnmpManager(vdvSNMP, SNMP_Manager_Local_Port, SNMP_Manager_Trap_Local_Port);
 
 DEFINE_MODULE 'RmsGenericSnmpDeviceMonitor' mdlRmsGenericSnmpDeviceMonitor(vdvRms, vdvRmsGenericSnmpDeviceMonitor, vdvRmsGenericSnmpDeviceMonitor, vdvSNMP);
@@ -94,10 +95,10 @@ data_event[vdvRmsGenericSnmpDeviceMonitor] {
 	}
 }
 
-data_event[vdvRmsGenericSnmpDeviceMonitor] {
+data_event[vdvRmsEpsonProjectorMonitor] {
 	online: {
 		send_command data.device, "'PROPERTY-ASSET_NAME,Projector'";
-		send_command data.device, "'PROPERTY-IP_ADDRESS,172.16.1.11'";
+		send_command data.device, "'PROPERTY-IP_ADDRESS,152.66.16.105'";
 		send_command data.device, "'PROPERTY-PORT,161'";
 		send_command data.device, "'PROPERTY-COMMUNITY,public'";
 		send_command data.device, "'PROPERTY-POLL_INTERVAL,60'";

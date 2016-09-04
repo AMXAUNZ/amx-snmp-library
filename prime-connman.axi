@@ -4,7 +4,7 @@
 (***********************************************************)
 (*  FILE CREATED ON: 01/23/2016  AT: 21:43:16              *)
 (***********************************************************)
-(*  FILE_LAST_MODIFIED_ON: 07/19/2016  AT: 07:26:33        *)
+(*  FILE_LAST_MODIFIED_ON: 08/30/2016  AT: 15:48:59        *)
 (***********************************************************)
 (*  FILE REVISION: Rev 7                                   *)
 (*  REVISION DATE: 07/19/2016  AT: 07:25:31                *)
@@ -655,18 +655,28 @@ data_event[connman_device] {
             timeline_kill(CONNMAN_BUFFPROC_TL);
         }
         
-        if (data.number == 14) {
-            if (AMX_ERROR <= get_log_level()) debug(AMX_ERROR, "devtoa(data.device), ' onerror: ', 'closing unexpected open socket'");
-            ip_client_close(data.device.port);
-        } else 
-        if (connman_request = CONNMAN_REQUEST_CONNECT) {
-            if (AMX_INFO <= get_log_level()) debug(AMX_INFO, "devtoa(data.device), ' onerror: ', 're-trying in ', ltoa(connman_connect_times[1] - timeline_get(CONNMAN_CONNECT_TL)), ' seconds.'");
-            if (timeline_active(CONNMAN_BUFFPROC_TL)) {
-                timeline_set(CONNMAN_CONNECT_TL, 0);
-            } else {
-                timeline_create(CONNMAN_CONNECT_TL, connman_connect_times, length_array(connman_connect_times), TIMELINE_ABSOLUTE, TIMELINE_ONCE);
-            }
-        }
+        switch (data.number) {
+			case 14: { // Local port already used
+				if (AMX_ERROR <= get_log_level()) debug(AMX_ERROR, "devtoa(data.device), ' onerror: ', 'closing unexpected open socket'");
+				ip_client_close(data.device.port);
+			}
+			/*
+			case 9: { // Already closed
+				if (AMX_ERROR <= get_log_level()) debug(AMX_ERROR, "devtoa(data.device), ' onerror: ', 'unexpected closed socket. Using next IP socket.'");
+				connman_device.port++; // Bad idea
+			}
+			*/
+			default: {
+				if (connman_request = CONNMAN_REQUEST_CONNECT) {
+					if (AMX_INFO <= get_log_level()) debug(AMX_INFO, "devtoa(data.device), ' onerror: ', 're-trying in ', ltoa(connman_connect_times[1] - timeline_get(CONNMAN_CONNECT_TL)), ' seconds.'");
+					if (timeline_active(CONNMAN_BUFFPROC_TL)) {
+						timeline_set(CONNMAN_CONNECT_TL, 0);
+					} else {
+						timeline_create(CONNMAN_CONNECT_TL, connman_connect_times, length_array(connman_connect_times), TIMELINE_ABSOLUTE, TIMELINE_ONCE);
+					}
+				}
+			}
+		}
     }
     string: {
         if (AMX_DEBUG <= get_log_level()) debug(AMX_DEBUG, "'string received from ', data.sourceip, ' on port ', itoa(connman_host.port), ' ', IP_PROTOCOL_STRINGS[connman_host.protocol], ' (', itoa(length_string(data.text)), ' bytes): ', data.text");

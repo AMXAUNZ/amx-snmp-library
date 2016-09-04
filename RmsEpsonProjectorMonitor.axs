@@ -1,6 +1,6 @@
 MODULE_NAME='RmsEpsonProjectorMonitor'(dev vdvRMS, dev vdvDeviceModule, dev dvMonitoredDevice, dev vdvSNMP)
 (***********************************************************)
-(*  FILE_LAST_MODIFIED_ON: 07/24/2016  AT: 21:07:42        *)
+(*  FILE_LAST_MODIFIED_ON: 08/30/2016  AT: 16:17:09        *)
 (***********************************************************)
 
 (***********************************************************)
@@ -18,7 +18,6 @@ MODULE_NAME='RmsEpsonProjectorMonitor'(dev vdvRMS, dev vdvDeviceModule, dev dvMo
 	
 	- Projector Name
 	- Firmware Version
-	- Serial Number
 	- Lamp Hours
 	- Error Status
 	- Power Status and Control
@@ -72,8 +71,8 @@ MODULE_NAME='RmsEpsonProjectorMonitor'(dev vdvRMS, dev vdvDeviceModule, dev dvMo
 	
 	send_command vdvDeviceModule, "'PROPERTY-ASSET_NAME', '<name>'";                                        // Override the asset name, which is otherwise retrieved from iso.org.dod.internet.mgmt.mib-2.system.sysName
 	
-	send_command vdvDeviceModule, "'PROPERTY-CONTACT_TIMEOUT', itoa(<seconds>)";                            // Time in seconds after which, if no status updates have been received from the device, to mark the device as offline. This value must be greater than the POLL_INTERVAL.
-	send_command vdvDeviceModule, "'POLL_INTERVAL', itoa(<seconds>)|DISABLE`";                              // Time in seconds between requests for device status updates. Set this to 0 (disable) if the device will send SNMP TRAPs as changes occur.
+	send_command vdvDeviceModule, "'PROPERTY-CONTACT_TIMEOUT', itoa(<seconds>)";                            // Time in seconds after which, if no status updates have been received from the device, to mark the device as offline. This value must be greater than the POLL_INTERVAL. Default: 190 seconds.
+	send_command vdvDeviceModule, "'POLL_INTERVAL', itoa(<seconds>)|DISABLE`";                              // Time in seconds between requests for device status updates. Set this to 0 (disable) if the device will send SNMP TRAPs as changes occur. Default: 60 aeconds.
 	
 	send_command vdvDeviceModule, "'REINIT'";                                                               // Re-initialise the module and start the polling interval process.
 *)
@@ -100,8 +99,7 @@ char                ENTERPRISE_NUMBERS[][2][15]             = {                 
 					}
 char                ENTERPRISE_MODELS[][2][15]              = {                 // RMS Asset model name. http://www.dpstele.com/snmp/what-does-oid-network-elements.php
 						{'311.1.1.3.1.1', 'Workstation'}, 
-						{'311.1.1.3.1.2', 'Server'}, 
-						{'1248.4.1', 'PowerLite Pro'}                           // UNVERIFIED
+						{'311.1.1.3.1.2', 'Server'} 
 					}
 char                ENTERPRISE_TYPES[][2][15]               = {                 // RMS Asset type key. These must exist in RMS database for successful asset registration!
 						{'311.1.1.3.1.1', 'Utility'}, 
@@ -113,12 +111,12 @@ char                LAMP_LIFE[][2][15]                      = {                 
 						{'1248.4.1', '3000'}
 					}
 
-char                OID_Epson_LampHours[]                   = '1.3.6.1.4.1.1248.4.1.1.1.1.0';
-char                OID_Epson_Power[]                       = '1.3.6.1.4.1.1248.4.1.1.2.1.0';
-char                OID_Epson_Serial[]                      = '1.3.6.1.4.1.1248.4.1.1.1.8.0';
-char                OID_Epson_PWStatus[]                    = '1.3.6.1.4.1.1248.4.1.1.1.9.0';
-char                OID_Epson_InputSource[]                 = '1.3.6.1.4.1.1248.4.1.1.2.2.0';
-char                OID_Epson_Name[]                        = '1.3.6.1.4.1.1248.4.1.1.2.7.0';
+char                OID_Epson_LampHours[]                   = '1.3.6.1.4.1.1248.4.1.1.1.1.0'; // EPSON.epVDDivision.epProjector.epIMPrivate.epIMInformation.epIMLampTimer
+char                OID_Epson_FirmwareVersion[]             = '1.3.6.1.4.1.1248.4.1.1.1.8.0'; // EPSON.epVDDivision.epProjector.epIMPrivate.epIMInformation.epIMFirmwareVersion
+char                OID_Epson_PWStatus[]                    = '1.3.6.1.4.1.1248.4.1.1.1.9.0'; // EPSON.epVDDivision.epProjector.epIMPrivate.epIMInformation.epIMPwStatus
+char                OID_Epson_Power[]                       = '1.3.6.1.4.1.1248.4.1.1.2.1.0'; // EPSON.epVDDivision.epProjector.epIMPrivate.epIMControl.epIMPowerControl
+char                OID_Epson_InputSource[]                 = '1.3.6.1.4.1.1248.4.1.1.2.2.0'; // EPSON.epVDDivision.epProjector.epIMPrivate.epIMControl.epIMInputSourceChange
+char                OID_Epson_Name[]                        = '1.3.6.1.4.1.1248.4.1.1.2.7.0'; // EPSON.epVDDivision.epProjector.epIMPrivate.epIMControl.epIMPnameControl
 
 char                INPUT_SOURCES[][2][19]                  = {
 						{'10', 'INPUT1 (D-Sub)'}, 
@@ -239,17 +237,6 @@ with an adjusted value range.
 (***********************************************************)
 DEFINE_FUNCTION RegisterAsset(RmsAsset asset)
 {
-	stack_var volatile char serialNumber[100], firmwareVersion[30];
-	stack_var volatile integer pos;
-	
-	serialNumber = array_get(varbinds, OID_Epson_Serial);
-	
-	pos = find_string(serialNumber, '/', 1);
-	if (pos) {
-		firmwareVersion = left_string(serialNumber, pos - 1);
-		serialNumber = right_string(serialNumber, length_string(serialNumber) - pos);
-	}
-	
 	asset.clientKey         = RmsDevToString(dvMonitoredDevice);
 
 	asset.name              = array_get(varbinds, OID_Epson_Name);
@@ -257,8 +244,8 @@ DEFINE_FUNCTION RegisterAsset(RmsAsset asset)
 	asset.description       = array_get(varbinds, OID_sysDescr);
 	asset.manufacturerName  = array_get(ENTERPRISE_NUMBERS, sysObjectID_to_enterprise(array_get(varbinds, OID_sysObjectID)));
 	asset.modelName         = array_get(ENTERPRISE_MODELS, sysObjectID_to_model(array_get(varbinds, OID_sysObjectID)));
-	asset.serialNumber      = serialNumber;
-	asset.firmwareVersion   = firmwareVersion;
+	asset.serialNumber      = '';
+	asset.firmwareVersion   = array_get(varbinds, OID_Epson_FirmwareVersion);
 
 	if (length_string(asset.manufacturerName) && length_string(asset.modelName) && length_string(asset.serialNumber)) {
 		MONITOR_ASSET_GLOBALKEY = "plain_string(asset.serialNumber), '-', plain_string(asset.modelname), '-', plain_string(asset.manufacturerName)";
@@ -399,18 +386,10 @@ DEFINE_FUNCTION SynchronizeAssetParameters()
 	Immediate parameter updates /are/ sent correctly when the connection to 
 	RMS is online (because caching is not necessary).
 	
-	Fix for RMS SDK 4.5.3 (and probably others):
+	Fix for RmsNlSnapiComponents.axi from RMS SDK 4.5.3 (and probably others):
 	
-	106c106
-	<     IF(uKeys[nLoop].cName = cKey)
-	---
-	>     IF(uKeys[nLoop].cName == cKey)
-	113a114
+	112a113
 	>   uKeys[nKeyCount].cName = cKey
-	132c133
-	<     IF(uKeys[nLoop].cName = cKey)
-	---
-	>     IF(uKeys[nLoop].cName == cKey)
 	*/
 
 	// Synchronize all snapi HAS_xyz components
@@ -421,7 +400,7 @@ DEFINE_FUNCTION SynchronizeAssetParameters()
 	RmsAssetParameterEnqueueSetValue(assetClientKey, 'status.warning', array_get(WARNING_TYPES, mid_string(array_get(varbinds, OID_Epson_PWStatus), 4, 4)));
 	RmsAssetParameterEnqueueSetValue(assetClientKey, 'status.alarm', array_get(ALARM_TYPES, mid_string(array_get(varbinds, OID_Epson_PWStatus), 9, 4)));
 
-	RmsAssetParameterUpdatesSubmit(assetClientKey); // RMS SDK monitor modules incorrectly call RmsAssetParameterSubmit() here
+	RmsAssetParameterUpdatesSubmit(assetClientKey); // Corrected. Monitor modules included with the RMS SDK incorrectly call RmsAssetParameterSubmit() here
 }
 
 
@@ -574,16 +553,32 @@ DEFINE_FUNCTION ExecuteAssetControlMethod(CHAR methodKey[], CHAR arguments[])
 
 // #DEFINE INCLUDE_DEVICE_INFO_POLL_CALLBACK
 define_function device_info_poll_callback() {
+	/*
+	SnmpMonitorCommon will automatically poll the following
+	OIDs when the device becomes reachable.
+
 	snmp_get(OID_sysDescr);
 	snmp_get(OID_sysObjectID);
 	snmp_get(OID_sysName);
+
+	Add additional device-specific OIDs to poll here.
+	*/
+
 	snmp_get(OID_Epson_Name);
-	snmp_get(OID_Epson_Serial);
+	snmp_get(OID_Epson_FirmwareVersion);
 }
 
 // #DEFINE INCLUDE_DEVICE_STATUS_POLL_CALLBACK
 define_function device_status_poll_callback() {
+	/*
+	SnmpMonitorCommon will automatically poll the following
+	OIDs at regular intervals:
+	
 	snmp_get(OID_sysUpTime);
+	
+	Add additional device-specific OIDs to poll here.
+	*/
+	
 	snmp_get(OID_Epson_LampHours);
 	snmp_get(OID_Epson_Power);
 	snmp_get(OID_Epson_PWStatus);
@@ -601,7 +596,7 @@ define_function varbind_updated_callback(char oid[], char value[]) {
 			length_string(array_get(varbinds, OID_sysObjectID)) &&
 			length_string(array_get(varbinds, OID_sysName)) && 
 			length_string(array_get(varbinds, OID_Epson_Name)) && 
-			length_string(array_get(varbinds, OID_Epson_Serial))
+			length_string(array_get(varbinds, OID_Epson_FirmwareVersion))
 		) {
 			stack_var volatile integer i;
 			
