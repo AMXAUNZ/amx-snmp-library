@@ -1,6 +1,6 @@
 MODULE_NAME='RmsEpsonProjectorMonitor'(dev vdvRMS, dev vdvDeviceModule, dev dvMonitoredDevice, dev vdvSNMP)
 (***********************************************************)
-(*  FILE_LAST_MODIFIED_ON: 08/30/2016  AT: 16:17:09        *)
+(*  FILE_LAST_MODIFIED_ON: 10/03/2016  AT: 21:14:34        *)
 (***********************************************************)
 
 (***********************************************************)
@@ -10,70 +10,70 @@ MODULE_NAME='RmsEpsonProjectorMonitor'(dev vdvRMS, dev vdvDeviceModule, dev dvMo
 (*
 	RmsEpsonProjectorMonitor.axs
 	SNMP RMS Monitor Module for Epson Projectors
-	
+
 	Author: niek.groot@amxaustralia.com.au
 	No rights or warranties implied
-	
+
 	This module implements the following for various Epson projectors models;
-	
+
 	- Projector Name
 	- Firmware Version
 	- Lamp Hours
 	- Error Status
 	- Power Status and Control
 	- Input Status and Control
-	
+
 	This SNMP device monitor module retreives the current status of a device
 	via SNMP GET requests, and/or receives unsolicited SNMP TRAP updates sent
 	by the device as changes occur.
-	
+
 	This monitor module can optionally provide control of a device by linking
 	RMS Control Methods to SNMP SET requests.
-	
+
 	Devices are identified by by .iso.org.dod.internet.mgmt.mib-2.system.sysObjectID,
-	which is matched to a manufacturer, model, and asset type through lookup 
+	which is matched to a manufacturer, model, and asset type through lookup
 	tables defined in the DEFINE_CONSTANTS section of this module.
-	
-	The SnmpMonitorCommon.axi include provides required SNMP API functions and 
+
+	The SnmpMonitorCommon.axi include provides required SNMP API functions and
 	caches status parameter values, ensuring that only changs are sent to RMS.
-	
-	Whilst tested for broad compatibilty, this code should be considered a 
-	technology demo and should by carefully evaluated before using in a 
+
+	Whilst tested for broad compatibilty, this code should be considered a
+	technology demo and should by carefully evaluated before using in a
 	production environment.
-	
+
 	This module uses a seperately included SNMP Manager (snmp-manager.axs)
 	module for ease of adoption and customisation.
-	
-	Debug information has been included for clarity, but when enabled can 
+
+	Debug information has been included for clarity, but when enabled can
 	significantly affect performance. Only enable debug output when necessary.
-	
+
 	Please consider contributing by submitting bug fixes and improvements.
-	
-	
+
+
 	Usage:
-	
+
 	DEFINE_MODULE 'RmsGenericSnmpDeviceMonitor' mdlSnmpDeviceMonitor(dev <rms virtual device>, dev <monitor module virtual device>, dev <monitor module virtual device>, dev <snmp manager virtual device>);
-	
-	
+
+
 	Configuration:
-	
-	The SNMP agent address, port, and community must be configured. The 
+
+	The SNMP agent address, port, and community must be configured. The
 	listener port is configured globally for the SNMP manager module.
-	
-	Set an update interval if actively polling a device via SNMP GET. Disable 
+
+	Set an update interval if actively polling a device via SNMP GET. Disable
 	the update interval if the device will send SNMP TRAPs as changes occur.
-	
+
 	send_command vdvDeviceModule, "'DEBUG-', itoa(<AMX_ERROR|AMX_WARNING|AMX_INFO|AMX_DEBUG>)";             // Sets the debug message filter level via the set_log_level() function.
-	
+
 	send_command vdvDeviceModule, "'PROPERTY-IP_ADDRESS,', '<address>'";                                    // Device IP address. This will be used to filter SNMP TRAP and GET responses.
 	send_command vdvDeviceModule, "'PROPERTY-PORT,', itoa(<agent port>)";                                   // Device SNMP port. Default: 161.
 	send_command vdvDeviceModule, "'PROPERTY-COMMUNITY,', '<community>'";                                   // Device SNMP community name. Default: public.
-	
+
 	send_command vdvDeviceModule, "'PROPERTY-ASSET_NAME', '<name>'";                                        // Override the asset name, which is otherwise retrieved from iso.org.dod.internet.mgmt.mib-2.system.sysName
-	
+
 	send_command vdvDeviceModule, "'PROPERTY-CONTACT_TIMEOUT', itoa(<seconds>)";                            // Time in seconds after which, if no status updates have been received from the device, to mark the device as offline. This value must be greater than the POLL_INTERVAL. Default: 190 seconds.
 	send_command vdvDeviceModule, "'POLL_INTERVAL', itoa(<seconds>)|DISABLE`";                              // Time in seconds between requests for device status updates. Set this to 0 (disable) if the device will send SNMP TRAPs as changes occur. Default: 60 aeconds.
-	
+
 	send_command vdvDeviceModule, "'REINIT'";                                                               // Re-initialise the module and start the polling interval process.
 *)
 
@@ -87,23 +87,23 @@ char                MONITOR_DEBUG_NAME[]                    = 'RmsEpsonProjector
 char                MONITOR_VERSION[]                       = '4.5.3';
 
 char                ENTERPRISE_NUMBERS[][2][15]             = {                 // RMS Asset manufacturer name. https://www.iana.org/assignments/enterprise-numbers/enterprise-numbers
-						{'9', 'Cisco'}, 
-						{'11', 'HP'}, 
-						{'311', 'Microsoft'}, 
-						{'2636', 'Juniper'}, 
-						{'8942', 'AMX'}, 
-						{'14823', 'Aruba'}, 
-						{'25053', 'Ruckus'}, 
-						{'41639', 'SVSI'}, 
+						{'9', 'Cisco'},
+						{'11', 'HP'},
+						{'311', 'Microsoft'},
+						{'2636', 'Juniper'},
+						{'8942', 'AMX'},
+						{'14823', 'Aruba'},
+						{'25053', 'Ruckus'},
+						{'41639', 'SVSI'},
 						{'1248', 'Epson'}
 					}
 char                ENTERPRISE_MODELS[][2][15]              = {                 // RMS Asset model name. http://www.dpstele.com/snmp/what-does-oid-network-elements.php
-						{'311.1.1.3.1.1', 'Workstation'}, 
-						{'311.1.1.3.1.2', 'Server'} 
+						{'311.1.1.3.1.1', 'Workstation'},
+						{'311.1.1.3.1.2', 'Server'}
 					}
 char                ENTERPRISE_TYPES[][2][15]               = {                 // RMS Asset type key. These must exist in RMS database for successful asset registration!
-						{'311.1.1.3.1.1', 'Utility'}, 
-						{'311.1.1.3.1.2', 'Utility'}, 
+						{'311.1.1.3.1.1', 'Utility'},
+						{'311.1.1.3.1.2', 'Utility'},
 						{'1248.4.1', 'VideoProjector'}
 					}
 
@@ -119,48 +119,48 @@ char                OID_Epson_InputSource[]                 = '1.3.6.1.4.1.1248.
 char                OID_Epson_Name[]                        = '1.3.6.1.4.1.1248.4.1.1.2.7.0'; // EPSON.epVDDivision.epProjector.epIMPrivate.epIMControl.epIMPnameControl
 
 char                INPUT_SOURCES[][2][19]                  = {
-						{'10', 'INPUT1 (D-Sub)'}, 
-						{'11', 'INPUT1 (RGB)'}, 
-						{'14', 'INPUT1 (Component)'}, 
-						{'20', 'INPUT2 (D-Sub)'}, 
-						{'21', 'INPUT2 (RGB)'}, 
-						{'24', 'INPUT2 (Component)'}, 
-						{'30', 'INPUT3 (DVI)'}, 
-						{'31', 'INPUT3 (D-RGB)'}, 
-						{'33', 'INPUT3 (RGB-Video)'}, 
-						{'34', 'INPUT3 (YCbCr)'}, 
-						{'35', 'INPUT3 (YPbPr)'}, 
-						{'40', 'VIDEO'}, 
-						{'42', 'VIDEO (S)'}, 
-						{'45', 'VIDEO1 (BNC)'}, 
+						{'10', 'INPUT1 (D-Sub)'},
+						{'11', 'INPUT1 (RGB)'},
+						{'14', 'INPUT1 (Component)'},
+						{'20', 'INPUT2 (D-Sub)'},
+						{'21', 'INPUT2 (RGB)'},
+						{'24', 'INPUT2 (Component)'},
+						{'30', 'INPUT3 (DVI)'},
+						{'31', 'INPUT3 (D-RGB)'},
+						{'33', 'INPUT3 (RGB-Video)'},
+						{'34', 'INPUT3 (YCbCr)'},
+						{'35', 'INPUT3 (YPbPr)'},
+						{'40', 'VIDEO'},
+						{'42', 'VIDEO (S)'},
+						{'45', 'VIDEO1 (BNC)'},
 						{'41', 'VIDEO2 (RCA)'}
 					}
 
 char                PROJECTOR_STATUS[][2][9]                = {
-						{'01', 'Standby'}, 
-						{'02', 'Warmup'}, 
-						{'03', 'Normal'}, 
-						{'04', 'Cool down'}, 
+						{'01', 'Standby'},
+						{'02', 'Warmup'},
+						{'03', 'Normal'},
+						{'04', 'Cool down'},
 						{'FF', 'Abnormal'}
 					}
 
 char                WARNING_TYPES[][2][22]                  = {
-						{'0000', 'OK'}, 
-						{'0001', 'Lamp life'}, 
-						{'0002', 'OK No signal'}, 
-						{'0003', 'OK Unsupported signal'}, 
-						{'0004', 'Air filter'}, 
-						{'0005', 'High temperature'} 
+						{'0000', 'OK'},
+						{'0001', 'Lamp life'},
+						{'0002', 'OK No signal'},
+						{'0003', 'OK Unsupported signal'},
+						{'0004', 'Air filter'},
+						{'0005', 'High temperature'}
 					}
 
 char                ALARM_TYPES[][2][27]                    = {
-						{'0000', 'OK'}, 
-						{'0001', 'Lamp ON failure'}, 
-						{'0002', 'Lamp lid'}, 
-						{'0003', 'Lamp burnout (ON, then OFF)'}, 
-						{'0004', 'Fan'}, 
-						{'0005', 'Temperature sensor'}, 
-						{'0006', 'High temperature'}, 
+						{'0000', 'OK'},
+						{'0001', 'Lamp ON failure'},
+						{'0002', 'Lamp lid'},
+						{'0003', 'Lamp burnout (ON, then OFF)'},
+						{'0004', 'Fan'},
+						{'0005', 'Temperature sensor'},
+						{'0006', 'High temperature'},
 						{'0007', 'Interior (system)'}
 					}
 
@@ -189,9 +189,9 @@ volatile integer    METADATA_PROPERTY_LAMP_COOLDOWN_TIME    =   30;
 (***********************************************************)
 
 /*
-CAVEAT: RegisterAssetParametersSnapiComponents() will register an source.input 
+CAVEAT: RegisterAssetParametersSnapiComponents() will register an source.input
 parameter as per HAS_SOURCE_SELECT with an enumerated list of sources
-limited to DUET_MAX_PARAM_LEN (100 characters). Define an larger 
+limited to DUET_MAX_PARAM_LEN (100 characters). Define an larger
 DUET_MAX_PARAM_LEN if the device has a large source list.
 */
 #DEFINE DUET_MAX_PARAM_LEN 255
@@ -203,7 +203,7 @@ DUET_MAX_PARAM_LEN if the device has a large source list.
 #INCLUDE 'RmsMonitorCommon';
 
 /*
-CAVEAT: RegisterAssetParametersSnapiComponents() will register a lamp.consumption 
+CAVEAT: RegisterAssetParametersSnapiComponents() will register a lamp.consumption
 parameter as per HAS_LAMP with a hard-coded 2000 hour upper limit.
 This example addresses this by re-registering the lamp.consumption paramter
 with an adjusted value range.
@@ -251,7 +251,7 @@ DEFINE_FUNCTION RegisterAsset(RmsAsset asset)
 		MONITOR_ASSET_GLOBALKEY = "plain_string(asset.serialNumber), '-', plain_string(asset.modelname), '-', plain_string(asset.manufacturerName)";
 		asset.globalKey = MONITOR_ASSET_GLOBALKEY;
 	}
-	
+
 	// Override asset name with friendly name if specified
 	if (length_string(MONITOR_ASSET_NAME)) {
 		asset.name = MONITOR_ASSET_NAME;
@@ -261,7 +261,7 @@ DEFINE_FUNCTION RegisterAsset(RmsAsset asset)
 	if (!length_string(asset.assetType))        asset.assetType         = RMS_ASSET_TYPE_UNKNOWN;
 	if (!length_string(asset.manufacturerName)) asset.manufacturerName  = 'Unknown';
 	if (!length_string(asset.modelName))        asset.modelName         = 'Unknown';
-	
+
 	RmsAssetRegister(dvMonitoredDevice, asset);
 }
 
@@ -282,7 +282,7 @@ DEFINE_FUNCTION RegisterAssetParameters()
 {
 	// Register all snapi HAS_xyz components
 	RegisterAssetParametersSnapiComponents(assetClientKey);
-	
+
 	// Override the lamp consumption range set in RegisterAssetParametersSnapiComponents(), which is statically defined as 0-2000 hours.
 	RmsAssetParameterEnqueueDecimalWithBargraph(assetClientKey,
 								   'lamp.consumption',
@@ -302,10 +302,10 @@ DEFINE_FUNCTION RegisterAssetParameters()
 									'uptime',
 									'Uptime', 'Time elapsed since the SNMP agent on the host was started',
 									RMS_ASSET_PARAM_TYPE_NONE,
-									'', '', 
+									'', '',
 									RMS_ALLOW_RESET_NO, '',
 									RMS_TRACK_CHANGES_NO);
-	
+
 	RmsAssetParameterEnqueueString(assetClientKey,
 									'status.projector',
 									'Projector Status', 'Operational status',
@@ -313,7 +313,7 @@ DEFINE_FUNCTION RegisterAssetParameters()
 									array_get(PROJECTOR_STATUS, '03'), '', // For parameters with thresholds, set a default value that does not trigger the threshold as to avoid erronous alerts
 									RMS_ALLOW_RESET_NO, '',
 									RMS_TRACK_CHANGES_NO);
-	
+
 	RmsAssetParameterThresholdEnqueue(assetClientKey,
 									'status.projector',
 									'Error',
@@ -325,7 +325,7 @@ DEFINE_FUNCTION RegisterAssetParameters()
 									'status.warning',
 									'Warning Status', 'Warning status',
 									RMS_ASSET_PARAM_TYPE_NONE,
-									array_get(WARNING_TYPES, '0000'), '', 
+									array_get(WARNING_TYPES, '0000'), '',
 									RMS_ALLOW_RESET_NO, '',
 									RMS_TRACK_CHANGES_YES);
 
@@ -338,14 +338,14 @@ DEFINE_FUNCTION RegisterAssetParameters()
 
 	RmsAssetParameterEnqueueString(assetClientKey,
 									'status.alarm',
-									'Alarm Status', 'Alarm status', 
+									'Alarm Status', 'Alarm status',
 									RMS_ASSET_PARAM_TYPE_NONE,
-									array_get(ALARM_TYPES, '0000'), '', 
+									array_get(ALARM_TYPES, '0000'), '',
 									RMS_ALLOW_RESET_NO, '',
 									RMS_TRACK_CHANGES_YES);
-	
+
 	RmsAssetParameterThresholdEnqueue(assetClientKey,
-									'status.alarm', 
+									'status.alarm',
 									'Alarm',
 									RMS_STATUS_TYPE_MAINTENANCE,
 									RMS_ASSET_PARAM_THRESHOLD_COMPARISON_DOES_NOT_CONTAIN,
@@ -378,23 +378,23 @@ DEFINE_FUNCTION SynchronizeAssetParameters()
 	// Update only asset monitoring parameters that may have changed in value.
 
 	/*
-	CAVEAT: keyLookup() in RmsNlSnapiComponents does not correctly cache 
-	values, and keyFind() does not correctly recall them, preventing 
+	CAVEAT: keyLookup() in RmsNlSnapiComponents does not correctly cache
+	values, and keyFind() does not correctly recall them, preventing
 	SynchronizeAssetParametersSnapiComponents() from updating cached values
 	when the connection to RMS becomes online.
-	
-	Immediate parameter updates /are/ sent correctly when the connection to 
+
+	Immediate parameter updates /are/ sent correctly when the connection to
 	RMS is online (because caching is not necessary).
-	
+
 	Fix for RmsNlSnapiComponents.axi from RMS SDK 4.5.3 (and probably others):
-	
+
 	112a113
 	>   uKeys[nKeyCount].cName = cKey
 	*/
 
 	// Synchronize all snapi HAS_xyz components
 	SynchronizeAssetParametersSnapiComponents(assetClientKey);
-	
+
 	RmsAssetParameterEnqueueSetValue(assetClientKey, 'uptime', timeticks_to_time(atol_unsigned(array_get(varbinds, OID_sysUpTime))));
 	RmsAssetParameterEnqueueSetValue(assetClientKey, 'status.projector', array_get(PROJECTOR_STATUS, mid_string(array_get(varbinds, OID_Epson_PWStatus), 1, 2)));
 	RmsAssetParameterEnqueueSetValue(assetClientKey, 'status.warning', array_get(WARNING_TYPES, mid_string(array_get(varbinds, OID_Epson_PWStatus), 4, 4)));
@@ -447,7 +447,7 @@ DEFINE_FUNCTION RegisterAssetMetadata()
 
 	// Register all snapi HAS_xyz components
 	RegisterAssetMetadataSnapiComponents(assetClientKey);
-	
+
 	if (length_string(MONITOR_ASSET_GLOBALKEY)) {
 		RmsAssetMetadataEnqueueString(assetClientKey, 'asset.globalKey', 'Asset Global Key', MONITOR_ASSET_GLOBALKEY);
 	} else {
@@ -455,7 +455,7 @@ DEFINE_FUNCTION RegisterAssetMetadata()
 	}
 	RmsAssetMetadataEnqueueString(assetClientKey, 'sysObjectID', 'sysObjectID', array_get(varbinds, OID_sysObjectID)); // NOTE: MetadataName is limited to 50 characters by the RMS Server
 	RmsAssetMetadataEnqueueString(assetClientKey, 'hostname', 'Host Name', array_get(varbinds, OID_sysName));
-	
+
 	RmsAssetMetadataEnqueueString(assetClientKey, 'host-ip-address', 'Host IP Address', snmp_agent.address);
 	RmsAssetMetadataEnqueueHyperlink(assetClientKey, 'link-web-config', 'Web Configuration', "'http://', snmp_agent.address, '/'", "'http://', snmp_agent.address, '/'");
 	RmsAssetMetadataEnqueueString(assetClientKey, 'snmp.community', 'SNMP Community', snmp_agent.community);
@@ -466,9 +466,9 @@ DEFINE_FUNCTION RegisterAssetMetadata()
 		RmsAssetMetadataEnqueueString(assetClientKey, 'poll.interval', 'Poll Interval', 'DISABLED');
 	}
 	RmsAssetMetadataEnqueueString(assetClientKey, 'contact.timeout', 'Contact Timeout (seconds)', itoa(CONTACT_TIMEOUT_TIMES[1] / 1000));
-	
+
 	RmsAssetMetadataEnqueueString(assetClientKey, 'projector.name', 'Projector Name', array_get(varbinds, OID_Epson_Name));
-	
+
 	RmsAssetMetadataSubmit(assetClientKey);
 }
 
@@ -487,16 +487,16 @@ DEFINE_FUNCTION RegisterAssetMetadata()
 (***********************************************************)
 DEFINE_FUNCTION SynchronizeAssetMetadata()
 {
-	// Synchronize all snapi HAS_xyz components
-	if (SynchronizeAssetParametersSnapiComponents(assetClientKey)) {
-		RmsAssetParameterSubmit (assetClientKey);
-	}
-
 	/*
-	Not synchronising any of the previously registered metadata here, as  any 
-	updates to this metadata, such as due to the replacement of the device,
-	would also trigger a re-registration of the asset.
+	This module does not synchronise any of the previously registered metadata
+	here, beacuse updates (i.e. because the device has been replaced) would
+	also trigger a re-registration of the asset.
 	*/
+
+	// Synchronize all snapi HAS_xyz components
+	if (SynchronizeAssetMetadataSnapiComponents(assetClientKey)) {
+		RmsAssetMetadataSubmit(assetClientKey);
+	}
 }
 
 
@@ -540,7 +540,7 @@ DEFINE_FUNCTION RegisterAssetControlMethods()
 DEFINE_FUNCTION ExecuteAssetControlMethod(CHAR methodKey[], CHAR arguments[])
 {
 	debug("'<<< EXECUTE CONTROL METHOD : [', methodKey, '] args=', arguments, ' >>>'");
-  
+
 	switch (methodKey) {
 		case 'projector.lamp.power': {
 			snmp_set(OID_Epson_Power, "ASN1_TAG_INTEGER", itoa(RmsBooleanValue(arguments)));
@@ -573,16 +573,17 @@ define_function device_status_poll_callback() {
 	/*
 	SnmpMonitorCommon will automatically poll the following
 	OIDs at regular intervals:
-	
+
 	snmp_get(OID_sysUpTime);
-	
-	Add additional device-specific OIDs to poll here.
+
+	Add additional device-specific OIDs to automatically poll
+	when the device is communicating and data is initialized here:
 	*/
-	
+
 	snmp_get(OID_Epson_LampHours);
 	snmp_get(OID_Epson_Power);
 	snmp_get(OID_Epson_PWStatus);
-	
+
 	if ([vdvDeviceModule, POWER_FB]) { // Only available when device is powered on
 		snmp_get(OID_Epson_InputSource);
 	}
@@ -594,27 +595,27 @@ define_function varbind_updated_callback(char oid[], char value[]) {
 		if (
 			length_string(array_get(varbinds, OID_sysDescr)) &&
 			length_string(array_get(varbinds, OID_sysObjectID)) &&
-			length_string(array_get(varbinds, OID_sysName)) && 
-			length_string(array_get(varbinds, OID_Epson_Name)) && 
+			length_string(array_get(varbinds, OID_sysName)) &&
+			length_string(array_get(varbinds, OID_Epson_Name)) &&
 			length_string(array_get(varbinds, OID_Epson_FirmwareVersion))
 		) {
 			stack_var volatile integer i;
-			
+
 			// INPUTCOUNT-<count>
 			send_command vdvDeviceModule, "'INPUTCOUNT-', itoa(length_array(INPUT_SOURCES))";
-			
+
 			for (i = 1; i <= length_array(INPUT_SOURCES); i++) {
 				// INPUTPROPERTIES-<index>,<inputGroup>,<signalType>,<deviceLabel>,<displayName>
 				send_command vdvDeviceModule, "'INPUTPROPERTIES-"', itoa(i), ',', itoa(i), ',', INPUT_SOURCES[i][ARRAY_VALUE], ',', INPUT_SOURCES[i][ARRAY_VALUE], ',', INPUT_SOURCES[i][ARRAY_VALUE], '"'";
 			}
-			
+
 			METADATA_PROPERTY_LAMP_THRESHOLD = atoi(array_get(LAMP_LIFE, sysObjectID_to_model(array_get(varbinds, OID_sysObjectID))));
 			if (!METADATA_PROPERTY_LAMP_THRESHOLD) METADATA_PROPERTY_LAMP_THRESHOLD = 2000;
-			
+
 			on[vdvDeviceModule, DATA_INITIALIZED];
 		}
 	}
-	
+
 	if (parametersRegistered) {
 		switch (oid) {
 			case OID_sysUpTime: RmsAssetParameterSetValue(assetClientKey, 'uptime', timeticks_to_time(atol_unsigned(value)));
@@ -625,7 +626,7 @@ define_function varbind_updated_callback(char oid[], char value[]) {
 			}
 		}
 	}
-	
+
 	// SNAPI redirect (for handling by RmsNlSnapiComponents)
 	switch (oid) {
 		case OID_Epson_Power: {

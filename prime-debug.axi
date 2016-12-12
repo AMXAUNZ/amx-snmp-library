@@ -99,7 +99,7 @@ long                DEBUG_MAX_LEN                           = 2048;
 DEFINE_VARIABLE
 
 volatile integer    DEBUG_DECODE_UNPRINTABLE                = false;
-volatile char       DEBUG_PROC_NAME[DEBUG_MAX_LEN_PROPERTY_VALUE];
+volatile char       DEBUG_PROC_NAME[DEBUG_MAX_LEN_PROPERTY_VALUE] = __FILE__;
 
 (***********************************************************)
 (*    LIBRARY SUBROUTINE/FUNCTIONS DEFINITIONS GO BELOW    *)
@@ -284,11 +284,7 @@ define_function debug(integer lvl, msg[]) {
 
 #IF_NOT_DEFINED __PRIME_DEBUG_DISABLE
 	if (lvl <= get_log_level()) {
-		if (DEBUG_PROC_NAME) {
-			print("DEBUG_LEVEL_STRINGS[lvl], ' [', DEBUG_PROC_NAME, '] ', msg");
-		} else {
-			print("DEBUG_LEVEL_STRINGS[lvl], ' ', msg");
-		}
+	    print("DEBUG_LEVEL_STRINGS[lvl], ' [', DEBUG_PROC_NAME, '] ', msg");
 	}
 #END_IF
 
